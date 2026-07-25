@@ -1,0 +1,73 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+jspm_packages/
+
+# Build output
+dist/
+dist-ssr/
+build/
+out/
+*.tsbuildinfo
+
+# Vite
+.vite/
+vite.config.ts.timestamp-*
+
+# Test / coverage
+coverage/
+.nyc_output/
+*.lcov
+
+# Prisma
+prisma/generated/
+prisma/*.db
+prisma/*.db-journal
+prisma/migrations/dev.db*
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Caches
+.cache/
+.npm/
+.eslintcache
+.turbo/
+.parcel-cache/
+
+# Docker local volumes
+docker-data/
+postgres-data/
+
+# IDE / editors
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
