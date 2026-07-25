@@ -7,90 +7,98 @@
 
 ## Current Phase
 
-**Phase 1 — Client and Server Scaffolding — COMPLETED.**
-Phase 2 (Database and Prisma) has not started.
+**Phase 2 — Database and Prisma — COMPLETED.**
+Phase 3 (Authentication and authorization) has not started.
 
 ## Completed Work
 
-- Phase 0: project rules, architecture plan, roadmap, decisions, learning log.
-- Phase 1: npm workspaces root, React client, Express server, placeholder
-  routes, health endpoint, CORS, environment examples, first tests.
+- Phase 0: rules, architecture, roadmap, decisions, learning log.
+- Phase 1: npm workspaces, React client (5174), Express server (4000),
+  `/api/health`, CORS, first tests.
+- Phase 2: Prisma 7 + PostgreSQL schema, initial migration, shared Prisma
+  Client, idempotent seed, read-only database check, database npm scripts.
 
 ## Current Architecture
 
+Phase 1 layout unchanged (client 5174, server 4000, npm workspaces). Added:
+
 ```
-DevFlow/
-├── client/          React 19 + TypeScript + Vite 7 + React Router 7
-│   ├── src/components/HealthStatus.tsx
-│   ├── src/layouts/RootLayout.tsx
-│   ├── src/pages/          Home, Login, Register, App, NotFound
-│   ├── src/router/AppRoutes.tsx
-│   ├── src/test/           setup.ts, App.test.tsx
-│   ├── src/App.tsx, main.tsx, index.css
-│   └── vite.config.ts      port 5174, strictPort, Vitest + jsdom
-├── server/          Express 5 + TypeScript
-│   └── src/  app.ts, server.ts, config.ts,
-│             routes/health.ts, middleware/notFound.ts, middleware/errorHandler.ts,
-│             test/health.test.ts
-├── docs/
-└── package.json     npm workspaces: client, server
+server/
+├── prisma.config.ts                 schema + migrations + seed command
+├── prisma/
+│   ├── schema.prisma                models and enums
+│   ├── migrations/20260726000000_init_devflow_schema/migration.sql
+│   ├── seed.ts                      idempotent development data
+│   └── check.ts                     read-only verification (db:check)
+└── src/
+    ├── lib/prisma.ts                single PrismaClient + pg adapter
+    └── generated/prisma/            generated client (git-ignored)
 ```
 
-- npm workspaces only — no Turborepo/Nx/Lerna.
-- Frontend port **5174** (`strictPort: true`), backend port **4000**.
-- CORS allows `http://localhost:5174` with `credentials: true` (ready for Phase 3 cookies).
-- `app.ts` builds the Express app; `server.ts` is the only file that listens,
-  so Supertest imports the app without opening a port.
-- Response shapes: `{ success: true, data }` and `{ success: false, error: { message } }`.
+- Prisma 7 connects through `@prisma/adapter-pg` over the `pg` driver.
+- `DATABASE_URL` (and optional `SHADOW_DATABASE_URL`) live in `server/.env`;
+  only `.env.example` is committed.
+- `GET /api/health` still does not touch the database and keeps working while
+  PostgreSQL is down. `npm run db:check` is the separate database probe.
+
+**Models:** User, Workspace, WorkspaceMember, Project, Sprint, Issue, Comment,
+ActivityLog.
+**Enums:** WorkspaceRole, ProjectStatus, SprintStatus, IssueType, IssueStatus,
+IssuePriority, ActivityType.
+**Key constraints:** unique `User.email`, unique `Workspace.slug`, composite
+unique `(workspaceId, userId)` on membership and `(workspaceId, key)` on
+projects; issue sprint/assignee are nullable and set to null on delete; owner,
+reporter, project creator and comment author are `Restrict`.
 
 ## Working Commands (from the repository root)
 
 | Command | Result |
 |---|---|
-| `npm install` | installs both workspaces |
-| `npm run dev` | client on 5174 + server on 4000 via concurrently |
-| `npm run typecheck` | passes, strict mode, no `any` |
-| `npm test` | 5 tests pass (client 2, server 3) |
-| `npm run build` | client `tsc --noEmit` + `vite build`, server `tsc` |
+| `npm run dev` | client 5174 + server 4000 |
+| `npm run typecheck` / `npm test` / `npm run build` | pass (5 tests) |
+| `npm run db:validate` / `db:format` / `db:generate` | schema tooling, no database needed |
+| `npm run db:migrate` | `prisma migrate dev` (needs a real PostgreSQL) |
+| `npm run db:status` | migration status |
+| `npm run db:seed` | idempotent seed |
+| `npm run db:check` | read-only verification |
+| `npm run db:studio` | Prisma Studio (manual use only) |
 
-## Important Decisions
-
-- npm workspaces + concurrently instead of a monorepo tool.
-- `app.ts` / `server.ts` separation for testability.
-- `tsconfig.build.json` on the server excludes `src/test` from the build output.
-- `react-router-dom` pinned to the latest 7.x: older 7.x releases carry many
-  more advisories; the single remaining advisory affects RSC mode, which this
-  project does not use.
-
-Full decision table: `docs/DECISIONS.md`.
-
-## Known Limitations
-
-- No database, no Prisma, no authentication, no workspaces/projects/issues.
-- No Docker, no CI, no lint tooling yet (Phase 8).
-- Environment handling uses plain defaults; Zod validation arrives in Phase 3.
-- `HealthStatus` is a scaffolding probe, not real data fetching.
-- Real `.env` files are not created; only `.env.example` on both sides.
-
-## Next Task
-
-**Phase 2 — Database and Prisma.** Docker Compose PostgreSQL service,
-`prisma/schema.prisma` (User, Workspace, Membership, Project, Issue, Comment,
-Activity), first migration, seed script, shared Prisma Client instance.
-
-## Verification Status
+## Verification Status (Phase 2)
 
 | Check | Status |
 |---|---|
+| `prisma format` / `prisma validate` | Passed |
+| Migration `20260726000000_init_devflow_schema` | Created and applied |
+| `prisma migrate status` | "Database schema is up to date" |
+| Prisma Client generation | Passed |
+| Seed | Passed — 3 users, 1 workspace, 3 members, 2 projects, 3 sprints, 10 issues, 3 comments, 6 activity rows |
+| Seed idempotency | Passed — second run produced identical counts |
+| `npm run db:check` | Passed |
 | `npm run typecheck` | Passed |
-| `npm test` | Passed (5 tests) |
+| `npm test` | Passed (client 2, server 3), no database required |
 | `npm run build` | Passed |
-| `npm run dev` both services | Verified |
-| Vite stays on 5174 | Verified (`strictPort`) |
-| `GET /api/health` | Verified: `{"success":true,"data":{"status":"ok"}}` |
-| Unknown API route | Verified: 404 `Route not found` |
-| CORS for `http://localhost:5174` | Verified via response header |
-| Database migrations | Not started |
-| Docker Compose | Not started |
-| CI pipeline | Not started |
-| Deployment | Not started |
+
+## Known Limitations
+
+- No local PostgreSQL service and no Docker on this machine. Verification ran
+  against a disposable local server started with `npx prisma dev --name devflow`.
+  Its port changes when recreated, so `server/.env` must be updated from the
+  URLs that command prints.
+- `prisma migrate dev` fails against that emulated server with `P1017`. The
+  initial migration was produced with `prisma migrate diff --from-empty
+  --to-schema` and applied with `prisma migrate deploy` — real versioned
+  migration SQL, not `db push`. On a normal PostgreSQL, use `npm run db:migrate`.
+- No authentication columns yet (`passwordHash`, sessions arrive in Phase 3).
+- No API endpoints read the database yet; no CRUD, no client integration.
+- No Docker, no CI, no lint tooling (Phase 8).
+- Tests still do not touch a database; a test database arrives in Phase 8.
+- `npx prisma init` left `server/.agents`, `server/.claude`, `server/.windsurf`
+  and `server/skills-lock.json` behind; they are unused and safe to delete.
+
+## Next Task
+
+**Phase 3 — Authentication and Authorization.** Add credential fields and a
+session model via a new migration, then `POST /api/auth/register`, `login`,
+`logout`, `GET /api/auth/me`, password hashing, HTTP-only cookie sessions,
+`requireAuth` middleware and a workspace-role authorization helper, all
+validated with Zod.

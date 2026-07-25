@@ -21,6 +21,7 @@ coverage/
 *.lcov
 
 # Prisma
+server/src/generated/
 prisma/generated/
 prisma/*.db
 prisma/*.db-journal

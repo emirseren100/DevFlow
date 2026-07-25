@@ -1,0 +1,222 @@
+// DevFlow database schema.
+// Phase 2: data model only. Authentication fields arrive in Phase 3.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum WorkspaceRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+enum ProjectStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+enum SprintStatus {
+  PLANNED
+  ACTIVE
+  COMPLETED
+}
+
+enum IssueType {
+  TASK
+  BUG
+}
+
+enum IssueStatus {
+  BACKLOG
+  TODO
+  IN_PROGRESS
+  IN_REVIEW
+  DONE
+}
+
+enum IssuePriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum ActivityType {
+  WORKSPACE_CREATED
+  MEMBER_ADDED
+  PROJECT_CREATED
+  ISSUE_CREATED
+  ISSUE_UPDATED
+  ISSUE_STATUS_CHANGED
+  ISSUE_ASSIGNED
+  COMMENT_CREATED
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  ownedWorkspaces Workspace[]       @relation("WorkspaceOwner")
+  memberships     WorkspaceMember[]
+  createdProjects Project[]         @relation("ProjectCreator")
+  reportedIssues  Issue[]           @relation("IssueReporter")
+  assignedIssues  Issue[]           @relation("IssueAssignee")
+  comments        Comment[]
+  activities      ActivityLog[]
+
+  @@map("users")
+}
+
+model Workspace {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  ownerId   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Restrict: a user account cannot be removed while it still owns workspaces.
+  owner      User              @relation("WorkspaceOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  members    WorkspaceMember[]
+  projects   Project[]
+  activities ActivityLog[]
+
+  @@index([ownerId])
+  @@map("workspaces")
+}
+
+model WorkspaceMember {
+  id          String        @id @default(cuid())
+  workspaceId String
+  userId      String
+  role        WorkspaceRole @default(MEMBER)
+  joinedAt    DateTime      @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, userId])
+  @@index([userId])
+  @@index([workspaceId, role])
+  @@map("workspace_members")
+}
+
+model Project {
+  id          String        @id @default(cuid())
+  workspaceId String
+  createdById String
+  name        String
+  key         String
+  description String?
+  status      ProjectStatus @default(ACTIVE)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  workspace  Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy  User          @relation("ProjectCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  sprints    Sprint[]
+  issues     Issue[]
+  activities ActivityLog[]
+
+  // A key such as "API" only has to be unique inside its own workspace.
+  @@unique([workspaceId, key])
+  @@index([workspaceId, status])
+  @@index([createdById])
+  @@map("projects")
+}
+
+model Sprint {
+  id        String       @id @default(cuid())
+  projectId String
+  name      String
+  goal      String?
+  status    SprintStatus @default(PLANNED)
+  startDate DateTime?
+  endDate   DateTime?
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  issues  Issue[]
+
+  @@index([projectId, status])
+  @@map("sprints")
+}
+
+model Issue {
+  id          String        @id @default(cuid())
+  projectId   String
+  sprintId    String?
+  reporterId  String
+  assigneeId  String?
+  title       String
+  description String?
+  type        IssueType     @default(TASK)
+  status      IssueStatus   @default(BACKLOG)
+  priority    IssuePriority @default(MEDIUM)
+  position    Int           @default(0)
+  dueDate     DateTime?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  project  Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  // Deleting a sprint keeps its issues; they fall back to the backlog.
+  sprint   Sprint? @relation(fields: [sprintId], references: [id], onDelete: SetNull)
+  reporter User    @relation("IssueReporter", fields: [reporterId], references: [id], onDelete: Restrict)
+  assignee User?   @relation("IssueAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+
+  comments   Comment[]
+  activities ActivityLog[]
+
+  @@index([projectId, status, position])
+  @@index([assigneeId])
+  @@index([sprintId])
+  @@map("issues")
+}
+
+model Comment {
+  id        String   @id @default(cuid())
+  issueId   String
+  authorId  String
+  body      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  issue  Issue @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  author User  @relation(fields: [authorId], references: [id], onDelete: Restrict)
+
+  @@index([issueId, createdAt])
+  @@index([authorId])
+  @@map("comments")
+}
+
+model ActivityLog {
+  id          String       @id @default(cuid())
+  workspaceId String
+  projectId   String?
+  issueId     String?
+  actorId     String?
+  type        ActivityType
+  metadata    Json?
+  createdAt   DateTime     @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  project   Project?  @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  issue     Issue?    @relation(fields: [issueId], references: [id], onDelete: SetNull)
+  // Actor stays nullable so future system-generated events have no author.
+  actor     User?     @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, createdAt])
+  @@index([projectId, createdAt])
+  @@index([issueId, createdAt])
+  @@map("activity_logs")
+}

@@ -118,14 +118,57 @@ Zod runs at exactly one place: **the edge of the API**.
 
 ## 7. Prisma and PostgreSQL
 
-- `prisma/schema.prisma` is the single source of truth for the data model.
-- `prisma migrate dev` creates SQL migrations that are committed to git.
-- `prisma generate` produces a typed client; generated output is git-ignored.
-- Relations are modelled explicitly (User, Workspace, Membership, Project,
-  Issue, Comment, Activity) with foreign keys and indexes on lookup columns.
-- Queries use Prisma Client only — no raw SQL unless a query cannot be
-  expressed otherwise, and then with parameter binding.
-- Multi-write operations that must not half-apply use `prisma.$transaction`.
+**PostgreSQL** stores all application data and enforces the hard rules:
+primary keys, foreign keys, unique constraints and enum values. Anything the
+database can guarantee is not left to application code.
+
+**Prisma schema** — `server/prisma/schema.prisma` is the single source of truth
+for the data model. `server/prisma.config.ts` (Prisma 7) points at the schema,
+the migrations folder and the seed command, and reads `DATABASE_URL`.
+
+**Migrations** — `prisma migrate dev` turns schema changes into SQL files under
+`server/prisma/migrations/`. Those files are committed, so every machine and
+environment builds the same tables in the same order.
+
+**Prisma Client** — generated into `server/src/generated/prisma` (git-ignored)
+and wrapped by `server/src/lib/prisma.ts`, which creates exactly one client for
+the process. Prisma 7 connects through the `@prisma/adapter-pg` driver adapter
+over the `pg` connection pool.
+
+**Seed data** — `server/prisma/seed.ts` writes a small deterministic dataset
+with fixed `seed_*` ids and `upsert`, so it can run repeatedly without creating
+duplicates. `server/prisma/check.ts` is a read-only counterpart that counts rows
+and verifies the seeded relations.
+
+Relation overview:
+
+```
+User 1───* Workspace            (owner)
+User *───* Workspace            through WorkspaceMember (role: OWNER/ADMIN/MEMBER)
+Workspace 1───* Project
+Project   1───* Sprint
+Project   1───* Issue
+Sprint    1───* Issue           (optional; deleting a sprint nulls the link)
+User      1───* Issue           as reporter (required) and assignee (optional)
+Issue     1───* Comment
+Workspace 1───* ActivityLog     (project, issue and actor are optional)
+```
+
+Data flow: React → REST call → Express handler → Prisma Client → PostgreSQL,
+and back as plain JSON. The client never sees Prisma types or SQL.
+
+The `GET /api/health` endpoint deliberately does **not** touch the database. It
+answers "is the API process alive and reachable", which stays true and useful
+even while PostgreSQL is down; a separate database check (`npm run db:check`)
+answers "is the database reachable and seeded". Mixing the two would make a
+database outage look identical to a crashed API.
+
+Database access appears in the code only from Phase 3 onwards: authentication
+reads and writes users and sessions, and Phases 4-6 add workspace, project,
+issue, comment and activity queries. Queries use Prisma Client only — no raw
+SQL unless a query cannot be expressed otherwise, and then with parameter
+binding. Multi-write operations that must not half-apply use
+`prisma.$transaction`.
 
 ## 8. Standard API Response Shape
 

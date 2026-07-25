@@ -1,8 +1,9 @@
 # DevFlow
 
-> **Status: Phase 1 of 10 complete.** The client and server scaffolding runs,
-> but no product feature exists yet. There is no database, no authentication
-> and no issue tracking. Everything in "Planned Features" is still unbuilt.
+> **Status: Phase 2 of 10 complete.** The client and server scaffolding runs and
+> the PostgreSQL schema exists with migrations and seed data. There is still no
+> authentication and no API for workspaces, projects or issues — everything in
+> "Planned Features" is unbuilt.
 
 ## Project Overview
 
@@ -72,8 +73,8 @@ Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 |---|---|---|
 | 0 | Project foundation | Complete |
 | 1 | Client and server scaffolding | Complete |
-| 2 | Database and Prisma | Next |
-| 3 | Authentication and authorization | Not started |
+| 2 | Database and Prisma | Complete |
+| 3 | Authentication and authorization | Next |
 | 4 | Workspaces and membership | Not started |
 | 5 | Projects and issues | Not started |
 | 6 | Comments, activity and Kanban | Not started |
@@ -85,7 +86,7 @@ Full phase details: [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Current Status
 
-Phase 1 — Client and Server Scaffolding is complete. What exists today:
+Phase 2 — Database and Prisma is complete. What exists today:
 
 - npm workspaces root with `client` and `server`
 - React + TypeScript client on port **5174** with placeholder routes
@@ -93,10 +94,14 @@ Phase 1 — Client and Server Scaffolding is complete. What exists today:
 - Express + TypeScript API on port **4000** with `GET /api/health`, a shared
   404 response and a central error handler
 - CORS configured for `http://localhost:5174`
-- 5 passing tests: a client shell smoke test and Supertest API tests
+- PostgreSQL schema through Prisma 7: User, Workspace, WorkspaceMember,
+  Project, Sprint, Issue, Comment, ActivityLog — with an applied initial
+  migration, an idempotent seed and a read-only database check
+- 5 passing tests: a client shell smoke test and Supertest API tests, none of
+  which require a database
 
-Not built yet: database, Prisma, authentication, workspaces, projects, issues,
-comments, activity, Kanban, Docker and CI.
+Not built yet: authentication, workspace/project/issue APIs, comments,
+activity feed, Kanban, client data integration, Docker and CI.
 
 Current state at any time: [docs/PROJECT_STATE.md](docs/PROJECT_STATE.md).
 
@@ -106,8 +111,11 @@ Current state at any time: [docs/PROJECT_STATE.md](docs/PROJECT_STATE.md).
 
 - Node.js 20.11 or newer
 - npm 10 or newer
+- A PostgreSQL database for the database commands (the app itself and the test
+  suite still run without one)
 
-No database is required at this stage.
+If you have no local PostgreSQL, `npx prisma dev --name devflow` starts a
+disposable local server and prints the URLs to paste into `server/.env`.
 
 ### Install
 
@@ -115,11 +123,50 @@ No database is required at this stage.
 npm install
 ```
 
-Optionally copy the environment examples (defaults already match them):
+Copy the environment examples:
 
 ```bash
 cp client/.env.example client/.env && cp server/.env.example server/.env
 ```
+
+Then set `DATABASE_URL` in `server/.env`, for example:
+
+```bash
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/devflow?schema=public
+```
+
+### Database
+
+Apply the migrations, load development data and verify the result:
+
+```bash
+npm run db:migrate
+```
+
+```bash
+npm run db:seed
+```
+
+```bash
+npm run db:check
+```
+
+Browse the data with Prisma Studio (manual tool, not part of verification):
+
+```bash
+npm run db:studio
+```
+
+Other database commands: `npm run db:validate`, `npm run db:format`,
+`npm run db:generate`, `npm run db:status`.
+
+The seed is idempotent — running it again updates the same rows instead of
+creating duplicates.
+
+> **Warning:** `prisma migrate reset` (and any other reset command) **drops the
+> database and destroys all local development data**. It is not part of any npm
+> script here on purpose. Only run it manually, and only against a disposable
+> local development database.
 
 ### Run in development
 
