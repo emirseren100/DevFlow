@@ -30,44 +30,51 @@ export default function LoginPage() {
   }
 
   return (
-    <section>
-      <h1>Login</h1>
+    <section className="auth">
+      <div className="auth__card">
+        <h1>Login</h1>
+        <p className="auth__lead">Sign in to reach your workspaces, projects and issues.</p>
 
-      <form onSubmit={handleSubmit} noValidate>
-        <p>
-          <label htmlFor="login-email">Email</label>
-          <input
-            id="login-email"
-            name="email"
-            type="email"
-            autoComplete="email"
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-            required
-          />
-        </p>
+        <form className="auth__form" onSubmit={handleSubmit} noValidate>
+          <div className="field">
+            <label htmlFor="login-email">Email</label>
+            <input
+              id="login-email"
+              name="email"
+              type="email"
+              autoComplete="email"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              required
+            />
+          </div>
 
-        <p>
-          <label htmlFor="login-password">Password</label>
-          <input
-            id="login-password"
-            name="password"
-            type="password"
-            autoComplete="current-password"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            required
-          />
-        </p>
+          <div className="field">
+            <label htmlFor="login-password">Password</label>
+            <input
+              id="login-password"
+              name="password"
+              type="password"
+              autoComplete="current-password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              required
+            />
+          </div>
 
-        {error ? <p role="alert">{error}</p> : null}
+          {error ? (
+            <p className="form-error" role="alert">
+              {error}
+            </p>
+          ) : null}
 
-        <button type="submit" disabled={isSubmitting}>
-          {isSubmitting ? 'Signing in…' : 'Sign in'}
-        </button>
-      </form>
+          <button type="submit" disabled={isSubmitting}>
+            {isSubmitting ? 'Signing in…' : 'Sign in'}
+          </button>
+        </form>
+      </div>
 
-      <p>
+      <p className="auth__footer">
         No account yet? <Link to="/register">Create one</Link>
       </p>
     </section>

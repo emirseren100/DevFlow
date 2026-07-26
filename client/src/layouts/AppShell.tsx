@@ -46,7 +46,10 @@ export default function AppShell() {
   return (
     <div className="app-shell">
       <header className="app-shell__header">
-        <Link to="/app" className="app-shell__brand">
+        <Link to="/app" className="brand">
+          <span className="brand__mark" aria-hidden="true">
+            DF
+          </span>
           DevFlow
         </Link>
 
@@ -62,8 +65,10 @@ export default function AppShell() {
         </button>
 
         <div className="app-shell__user">
-          <span className="app-shell__user-name">{user?.name}</span>
-          <span className="app-shell__user-email">{user?.email}</span>
+          <span className="app-shell__identity">
+            <span className="app-shell__user-name">{user?.name}</span>
+            <span className="app-shell__user-email">{user?.email}</span>
+          </span>
           <button type="button" onClick={handleLogout} disabled={isLoggingOut}>
             {isLoggingOut ? 'Signing out…' : 'Sign out'}
           </button>

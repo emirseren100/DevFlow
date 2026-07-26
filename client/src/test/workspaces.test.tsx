@@ -159,7 +159,7 @@ describe('workspace list page', () => {
       'href',
       '/app/workspaces/w1/dashboard',
     );
-    expect(item).toHaveTextContent('OWNER');
+    expect(item).toHaveTextContent('Owner');
     expect(item).toHaveTextContent('2 members');
   });
 
@@ -188,9 +188,10 @@ describe('workspace settings page', () => {
     expect(
       await screen.findByRole('heading', { level: 1, name: 'Acme Team' }),
     ).toBeInTheDocument();
-    expect(screen.getByText('Slug: acme-team')).toBeInTheDocument();
-    expect(screen.getByText('Your role: OWNER')).toBeInTheDocument();
-    expect(screen.getByText(`Owner: ${USER.name} (${USER.email})`)).toBeInTheDocument();
+    expect(screen.getByText('acme-team')).toBeInTheDocument();
+    // "Owner" is both the metadata label and the role badge on this page.
+    expect(screen.getAllByText('Owner').length).toBeGreaterThan(0);
+    expect(screen.getByText(`${USER.name} (${USER.email})`)).toBeInTheDocument();
   });
 
   it('hides management controls from a plain member', async () => {
@@ -222,7 +223,8 @@ describe('workspace settings page', () => {
 
     await userEvent.click(await screen.findByRole('button', { name: 'Delete workspace' }));
 
-    expect(screen.getByRole('alert')).toHaveTextContent('cannot be undone');
+    // The confirmation is a modal dialog, not a second inline button.
+    expect(screen.getByRole('dialog')).toHaveTextContent('cannot be undone');
     expect(
       fetchMock.mock.calls.some(
         ([, init]) => (init as RequestInit | undefined)?.method === 'DELETE',
@@ -243,7 +245,9 @@ describe('workspace members page', () => {
     renderApp('/app/workspaces/w1/members');
 
     expect(await screen.findByRole('heading', { level: 1, name: 'Members' })).toBeInTheDocument();
-    expect(screen.getByText(/Kerem Demir \(kerem@devflow\.local\)/)).toBeInTheDocument();
+    // The name also appears in the "Role for …" label of the owner controls.
+    expect(screen.getAllByText(/Kerem Demir/).length).toBeGreaterThan(0);
+    expect(screen.getByText('kerem@devflow.local')).toBeInTheDocument();
   });
 
   it('hides member management from a plain member', async () => {
@@ -265,7 +269,7 @@ describe('workspace members page', () => {
 
     expect(screen.getByRole('button', { name: 'Add member' })).toBeInTheDocument();
     expect(
-      within(screen.getByLabelText('Member role')).queryByRole('option', { name: 'ADMIN' }),
+      within(screen.getByLabelText('Member role')).queryByRole('option', { name: 'Admin' }),
     ).not.toBeInTheDocument();
   });
 
@@ -295,7 +299,7 @@ describe('workspace members page', () => {
     await userEvent.type(await screen.findByLabelText('Member email'), 'selin@devflow.local');
     await userEvent.click(screen.getByRole('button', { name: 'Add member' }));
 
-    expect(await screen.findByText(/Selin Kaya \(selin@devflow\.local\)/)).toBeInTheDocument();
+    expect(await screen.findByText('selin@devflow.local')).toBeInTheDocument();
   });
 
   it('shows the server error when the email belongs to no account', async () => {

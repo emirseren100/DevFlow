@@ -52,7 +52,7 @@ export function EmptyState({
     <div className="state state--empty">
       <p className="state__title">{title}</p>
       <p>{description}</p>
-      {action}
+      {action && <div className="state__actions">{action}</div>}
     </div>
   );
 }
@@ -118,15 +118,15 @@ export function ErrorState({
       <p>{hint}</p>
       <p className="state__detail">{errorMessage(error)}</p>
 
-      {canRetry && onRetry && (
-        <button type="button" onClick={onRetry}>
-          Try again
-        </button>
-      )}
+      <div className="state__actions">
+        {canRetry && onRetry && (
+          <button type="button" onClick={onRetry}>
+            Try again
+          </button>
+        )}
 
-      <p>
         <Link to={backTo}>{backLabel}</Link>
-      </p>
+      </div>
     </div>
   );
 }

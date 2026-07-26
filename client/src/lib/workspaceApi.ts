@@ -5,6 +5,13 @@ export type WorkspaceRole = 'OWNER' | 'ADMIN' | 'MEMBER';
 /** Role that may be handed to somebody else. OWNER is never one of them. */
 export type AssignableRole = 'ADMIN' | 'MEMBER';
 
+/** Readable role names, so no screen has to print the raw enum. */
+export const ROLE_LABELS: Record<WorkspaceRole, string> = {
+  OWNER: 'Owner',
+  ADMIN: 'Admin',
+  MEMBER: 'Member',
+};
+
 export interface WorkspaceSummary {
   id: string;
   name: string;

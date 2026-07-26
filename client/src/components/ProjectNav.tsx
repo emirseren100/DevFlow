@@ -13,11 +13,11 @@ export default function ProjectNav({ workspaceId, projectId }: ProjectNavProps) 
   const base = `/app/workspaces/${workspaceId}/projects/${projectId}`;
 
   return (
-    <nav aria-label="Project views">
+    <nav className="project-nav" aria-label="Project views">
       <NavLink to={base} end>
         Issues
-      </NavLink>{' '}
-      <NavLink to={`${base}/board`}>Board</NavLink>{' '}
+      </NavLink>
+      <NavLink to={`${base}/board`}>Board</NavLink>
       <NavLink to={`${base}/activity`}>Activity</NavLink>
     </nav>
   );

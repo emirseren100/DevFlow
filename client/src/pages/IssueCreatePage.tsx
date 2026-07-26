@@ -5,6 +5,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 
 import Breadcrumbs from '../components/Breadcrumbs';
 import PageHeader from '../components/PageHeader';
+import { PRIORITY_LABELS } from '../components/badges';
 import { ErrorState, LoadingState } from '../components/states';
 import { ApiError, errorMessage } from '../lib/apiClient';
 import type { IssueInput, IssuePriority, IssueStatus, IssueType } from '../lib/projectApi';
@@ -12,6 +13,8 @@ import {
   ISSUE_PRIORITIES,
   ISSUE_STATUSES,
   ISSUE_TYPES,
+  STATUS_LABELS,
+  TYPE_LABELS,
   createIssue,
   listSprints,
 } from '../lib/projectApi';
@@ -114,10 +117,6 @@ export default function IssueCreatePage() {
         description="The issue belongs to the project in the address bar, so there is no project to pick here."
       />
 
-      <p>
-        <Link to={`/app/workspaces/${workspaceId}/projects/${projectId}`}>Back to the project</Link>
-      </p>
-
       {(membersQuery.isPending || sprintsQuery.isPending) && (
         <LoadingState label="Loading form…" />
       )}
@@ -126,106 +125,135 @@ export default function IssueCreatePage() {
         <ErrorState error={membersQuery.error} onRetry={() => void membersQuery.refetch()} />
       )}
 
-      <form onSubmit={handleSubmit}>
-        <label htmlFor="issue-title">Title</label>
-        <input
-          id="issue-title"
-          value={title}
-          onChange={(event) => setTitle(event.target.value)}
-          required
-          minLength={2}
-          maxLength={200}
-        />
-        {fieldErrors.title && <p role="alert">{fieldErrors.title[0]}</p>}
+      <form className="panel form" onSubmit={handleSubmit}>
+        <div className="field">
+          <label htmlFor="issue-title">Title</label>
+          <input
+            id="issue-title"
+            value={title}
+            onChange={(event) => setTitle(event.target.value)}
+            required
+            minLength={2}
+            maxLength={200}
+          />
+          {fieldErrors.title && (
+            <span className="field__error" role="alert">
+              {fieldErrors.title[0]}
+            </span>
+          )}
+        </div>
 
-        <label htmlFor="issue-description">Description</label>
-        <textarea
-          id="issue-description"
-          value={description}
-          onChange={(event) => setDescription(event.target.value)}
-          maxLength={10000}
-        />
+        <div className="field">
+          <label htmlFor="issue-description">Description</label>
+          <textarea
+            id="issue-description"
+            value={description}
+            onChange={(event) => setDescription(event.target.value)}
+            maxLength={10000}
+          />
+        </div>
 
-        <label htmlFor="issue-type">Type</label>
-        <select
-          id="issue-type"
-          value={type}
-          onChange={(event) => setType(event.target.value as IssueType)}
-        >
-          {ISSUE_TYPES.map((value) => (
-            <option key={value} value={value}>
-              {value}
-            </option>
-          ))}
-        </select>
+        <div className="form__row">
+          <div className="field" style={{ flex: '1 1 8rem' }}>
+            <label htmlFor="issue-type">Type</label>
+            <select
+              id="issue-type"
+              value={type}
+              onChange={(event) => setType(event.target.value as IssueType)}
+            >
+              {ISSUE_TYPES.map((value) => (
+                <option key={value} value={value}>
+                  {TYPE_LABELS[value]}
+                </option>
+              ))}
+            </select>
+          </div>
 
-        <label htmlFor="issue-priority">Priority</label>
-        <select
-          id="issue-priority"
-          value={priority}
-          onChange={(event) => setPriority(event.target.value as IssuePriority)}
-        >
-          {ISSUE_PRIORITIES.map((value) => (
-            <option key={value} value={value}>
-              {value}
-            </option>
-          ))}
-        </select>
+          <div className="field" style={{ flex: '1 1 8rem' }}>
+            <label htmlFor="issue-priority">Priority</label>
+            <select
+              id="issue-priority"
+              value={priority}
+              onChange={(event) => setPriority(event.target.value as IssuePriority)}
+            >
+              {ISSUE_PRIORITIES.map((value) => (
+                <option key={value} value={value}>
+                  {PRIORITY_LABELS[value]}
+                </option>
+              ))}
+            </select>
+          </div>
 
-        <label htmlFor="issue-status">Initial status</label>
-        <select
-          id="issue-status"
-          value={status}
-          onChange={(event) => setStatus(event.target.value as IssueStatus)}
-        >
-          {ISSUE_STATUSES.map((value) => (
-            <option key={value} value={value}>
-              {value}
-            </option>
-          ))}
-        </select>
+          <div className="field" style={{ flex: '1 1 8rem' }}>
+            <label htmlFor="issue-status">Initial status</label>
+            <select
+              id="issue-status"
+              value={status}
+              onChange={(event) => setStatus(event.target.value as IssueStatus)}
+            >
+              {ISSUE_STATUSES.map((value) => (
+                <option key={value} value={value}>
+                  {STATUS_LABELS[value]}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
 
-        <label htmlFor="issue-assignee">Assignee</label>
-        <select
-          id="issue-assignee"
-          value={assigneeId}
-          onChange={(event) => setAssigneeId(event.target.value)}
-        >
-          <option value="">Unassigned</option>
-          {members.map((member) => (
-            <option key={member.id} value={member.userId}>
-              {member.name}
-            </option>
-          ))}
-        </select>
+        <div className="field">
+          <label htmlFor="issue-assignee">Assignee</label>
+          <select
+            id="issue-assignee"
+            value={assigneeId}
+            onChange={(event) => setAssigneeId(event.target.value)}
+          >
+            <option value="">Unassigned</option>
+            {members.map((member) => (
+              <option key={member.id} value={member.userId}>
+                {member.name}
+              </option>
+            ))}
+          </select>
+        </div>
 
-        <label htmlFor="issue-sprint">Sprint</label>
-        <select
-          id="issue-sprint"
-          value={sprintId}
-          onChange={(event) => setSprintId(event.target.value)}
-        >
-          <option value="">No sprint</option>
-          {sprints.map((sprint) => (
-            <option key={sprint.id} value={sprint.id}>
-              {sprint.name}
-            </option>
-          ))}
-        </select>
+        <div className="field">
+          <label htmlFor="issue-sprint">Sprint</label>
+          <select
+            id="issue-sprint"
+            value={sprintId}
+            onChange={(event) => setSprintId(event.target.value)}
+          >
+            <option value="">No sprint</option>
+            {sprints.map((sprint) => (
+              <option key={sprint.id} value={sprint.id}>
+                {sprint.name}
+              </option>
+            ))}
+          </select>
+        </div>
 
-        <label htmlFor="issue-due-date">Due date</label>
-        <input
-          id="issue-due-date"
-          type="date"
-          value={dueDate}
-          onChange={(event) => setDueDate(event.target.value)}
-        />
+        <div className="field">
+          <label htmlFor="issue-due-date">Due date</label>
+          <input
+            id="issue-due-date"
+            type="date"
+            value={dueDate}
+            onChange={(event) => setDueDate(event.target.value)}
+          />
+        </div>
 
-        {saveError && <p role="alert">{saveError}</p>}
+        {saveError && (
+          <p className="form-error" role="alert">
+            {saveError}
+          </p>
+        )}
 
-        <button type="submit" disabled={createMutation.isPending}>
-          {createMutation.isPending ? 'Creating…' : 'Create issue'}
-        </button>
+        <div className="form__row">
+          <button type="submit" disabled={createMutation.isPending}>
+            {createMutation.isPending ? 'Creating…' : 'Create issue'}
+          </button>
+          <Link to={`/app/workspaces/${workspaceId}/projects/${projectId}`}>Cancel</Link>
+        </div>
       </form>
     </>
   );

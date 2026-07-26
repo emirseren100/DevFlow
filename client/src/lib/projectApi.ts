@@ -29,6 +29,26 @@ export const ISSUE_TYPES: IssueType[] = ['TASK', 'BUG'];
 
 export const ISSUE_PRIORITIES: IssuePriority[] = ['LOW', 'MEDIUM', 'HIGH', 'URGENT'];
 
+/**
+ * The remaining enums, in the same shape. A raw `IN_PROGRESS` is a database
+ * value, not something a user should ever have to read on a screen.
+ */
+export const TYPE_LABELS: Record<IssueType, string> = {
+  TASK: 'Task',
+  BUG: 'Bug',
+};
+
+export const PROJECT_STATUS_LABELS: Record<ProjectStatus, string> = {
+  ACTIVE: 'Active',
+  ARCHIVED: 'Archived',
+};
+
+export const SPRINT_STATUS_LABELS: Record<SprintStatus, string> = {
+  PLANNED: 'Planned',
+  ACTIVE: 'Active',
+  COMPLETED: 'Completed',
+};
+
 export interface SafeUser {
   id: string;
   name: string;

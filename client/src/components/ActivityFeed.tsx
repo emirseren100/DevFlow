@@ -32,8 +32,10 @@ export default function ActivityFeed({ heading, queryKey, load, emptyText }: Act
   const items = feed.data?.pages.flatMap((page) => page.activities) ?? [];
 
   return (
-    <section aria-labelledby="activity-heading">
-      <h2 id="activity-heading">{heading}</h2>
+    <section className="panel stack--tight" aria-labelledby="activity-heading">
+      <div className="panel__header">
+        <h2 id="activity-heading">{heading}</h2>
+      </div>
 
       {feed.isPending && <LoadingState label="Loading activity…" />}
 
@@ -44,10 +46,10 @@ export default function ActivityFeed({ heading, queryKey, load, emptyText }: Act
       )}
 
       {items.length > 0 && (
-        <ul>
+        <ul className="activity">
           {items.map((activity) => (
             <li key={activity.id}>
-              {activityText(activity)}{' '}
+              <span>{activityText(activity)}</span>
               <time dateTime={activity.createdAt}>
                 {new Date(activity.createdAt).toLocaleString()}
               </time>
@@ -57,13 +59,15 @@ export default function ActivityFeed({ heading, queryKey, load, emptyText }: Act
       )}
 
       {feed.hasNextPage && (
-        <button
-          type="button"
-          onClick={() => void feed.fetchNextPage()}
-          disabled={feed.isFetchingNextPage}
-        >
-          {feed.isFetchingNextPage ? 'Loading…' : 'Load more activity'}
-        </button>
+        <div className="form__row">
+          <button
+            type="button"
+            onClick={() => void feed.fetchNextPage()}
+            disabled={feed.isFetchingNextPage}
+          >
+            {feed.isFetchingNextPage ? 'Loading…' : 'Load more activity'}
+          </button>
+        </div>
       )}
     </section>
   );

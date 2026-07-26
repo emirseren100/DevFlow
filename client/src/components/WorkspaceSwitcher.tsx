@@ -63,7 +63,9 @@ export default function WorkspaceSwitcher() {
         ))}
       </select>
 
-      <Link to="/app/workspaces">All workspaces</Link>
+      <Link className="faint" to="/app/workspaces">
+        All workspaces
+      </Link>
     </div>
   );
 }

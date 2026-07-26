@@ -33,7 +33,9 @@ describe('application shell', () => {
     renderApp('/');
 
     expect(screen.getByRole('heading', { level: 1, name: 'DevFlow' })).toBeInTheDocument();
-    expect(screen.getByText('Phase 1 scaffolding is complete.')).toBeInTheDocument();
+    expect(
+      screen.getByText('Issue and sprint management for small software teams.'),
+    ).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Login' })).toBeInTheDocument();
     expect(await screen.findByText('API status: ok')).toBeInTheDocument();
   });

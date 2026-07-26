@@ -4,9 +4,15 @@ import type { FormEvent } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
 import Breadcrumbs from '../components/Breadcrumbs';
+import ConfirmDialog from '../components/ConfirmDialog';
 import PageHeader from '../components/PageHeader';
 import ProjectNav from '../components/ProjectNav';
-import { PriorityBadge, StatusBadge } from '../components/badges';
+import {
+  PRIORITY_LABELS,
+  PriorityBadge,
+  ProjectStatusBadge,
+  StatusBadge,
+} from '../components/badges';
 import { EmptyState, ErrorState, LoadingState } from '../components/states';
 import { errorMessage } from '../lib/apiClient';
 import type { IssueFilters, ProjectStatus } from '../lib/projectApi';
@@ -14,6 +20,9 @@ import {
   ISSUE_PRIORITIES,
   ISSUE_STATUSES,
   ISSUE_TYPES,
+  SPRINT_STATUS_LABELS,
+  STATUS_LABELS,
+  TYPE_LABELS,
   canManageProjects,
   deleteProject,
   getProject,
@@ -167,103 +176,134 @@ export default function ProjectDetailPage() {
       <PageHeader
         title={`${project.key} — ${project.name}`}
         description={project.description ?? 'No description yet.'}
+        actions={
+          <Link
+            className="btn-link"
+            to={`/app/workspaces/${workspaceId}/projects/${projectId}/issues/new`}
+          >
+            Create an issue
+          </Link>
+        }
       />
 
-      <p>Status: {project.status}</p>
+      <section className="stack" aria-labelledby="project-summary-heading">
+        <h2 id="project-summary-heading">Issue summary</h2>
 
-      <h2>Issue summary</h2>
-      <ul>
-        {ISSUE_STATUSES.map((status) => (
-          <li key={status}>
-            {status}: {project.issueCountsByStatus[status] ?? 0}
+        <ul className="cards">
+          <li className="card">
+            <p className="card__label">Project status</p>
+            <p className="card__value" style={{ fontSize: 'var(--text-lg)' }}>
+              <ProjectStatusBadge status={project.status} />
+            </p>
           </li>
-        ))}
-      </ul>
-
-      <h2>Sprints</h2>
-      {project.sprints.length === 0 ? (
-        <p>This project has no sprint yet.</p>
-      ) : (
-        <ul>
-          {project.sprints.map((sprint) => (
-            <li key={sprint.id}>
-              {sprint.name} — {sprint.status} — {sprint.issueCount} issues
+          {ISSUE_STATUSES.map((status) => (
+            <li className="card" key={status}>
+              <p className="card__label">{STATUS_LABELS[status]}</p>
+              <p className="card__value">{project.issueCountsByStatus[status] ?? 0}</p>
             </li>
           ))}
         </ul>
-      )}
+      </section>
+
+      <section className="panel" aria-labelledby="sprints-heading">
+        <div className="panel__header">
+          <h2 id="sprints-heading">Sprints</h2>
+        </div>
+
+        {project.sprints.length === 0 ? (
+          <p className="muted">This project has no sprint yet.</p>
+        ) : (
+          <ul className="record-list">
+            {project.sprints.map((sprint) => (
+              <li key={sprint.id}>
+                <span className="record__title">{sprint.name}</span>
+                <span className="record__meta">
+                  <span className="badge">{SPRINT_STATUS_LABELS[sprint.status]}</span>
+                  <span>
+                    {sprint.issueCount} {sprint.issueCount === 1 ? 'issue' : 'issues'}
+                  </span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
 
       <h2>Issues</h2>
 
-      <p>
-        <Link to={`/app/workspaces/${workspaceId}/projects/${projectId}/issues/new`}>
-          Create an issue
-        </Link>
-      </p>
+      <form className="filters" role="search" onSubmit={(event) => event.preventDefault()}>
+        <div className="field field--wide">
+          <label htmlFor="issue-search">Search issues</label>
+          <input
+            id="issue-search"
+            value={filterValue('search')}
+            onChange={(event) => setFilter('search', event.target.value)}
+          />
+        </div>
 
-      <form role="search" onSubmit={(event) => event.preventDefault()}>
-        <label htmlFor="issue-search">Search issues</label>
-        <input
-          id="issue-search"
-          value={filterValue('search')}
-          onChange={(event) => setFilter('search', event.target.value)}
-        />
+        <div className="field">
+          <label htmlFor="issue-status">Status</label>
+          <select
+            id="issue-status"
+            value={filterValue('status')}
+            onChange={(event) => setFilter('status', event.target.value)}
+          >
+            <option value="">All statuses</option>
+            {ISSUE_STATUSES.map((status) => (
+              <option key={status} value={status}>
+                {STATUS_LABELS[status]}
+              </option>
+            ))}
+          </select>
+        </div>
 
-        <label htmlFor="issue-status">Status</label>
-        <select
-          id="issue-status"
-          value={filterValue('status')}
-          onChange={(event) => setFilter('status', event.target.value)}
-        >
-          <option value="">All statuses</option>
-          {ISSUE_STATUSES.map((status) => (
-            <option key={status} value={status}>
-              {status}
-            </option>
-          ))}
-        </select>
+        <div className="field">
+          <label htmlFor="issue-type">Type</label>
+          <select
+            id="issue-type"
+            value={filterValue('type')}
+            onChange={(event) => setFilter('type', event.target.value)}
+          >
+            <option value="">All types</option>
+            {ISSUE_TYPES.map((type) => (
+              <option key={type} value={type}>
+                {TYPE_LABELS[type]}
+              </option>
+            ))}
+          </select>
+        </div>
 
-        <label htmlFor="issue-type">Type</label>
-        <select
-          id="issue-type"
-          value={filterValue('type')}
-          onChange={(event) => setFilter('type', event.target.value)}
-        >
-          <option value="">All types</option>
-          {ISSUE_TYPES.map((type) => (
-            <option key={type} value={type}>
-              {type}
-            </option>
-          ))}
-        </select>
+        <div className="field">
+          <label htmlFor="issue-priority">Priority</label>
+          <select
+            id="issue-priority"
+            value={filterValue('priority')}
+            onChange={(event) => setFilter('priority', event.target.value)}
+          >
+            <option value="">All priorities</option>
+            {ISSUE_PRIORITIES.map((priority) => (
+              <option key={priority} value={priority}>
+                {PRIORITY_LABELS[priority]}
+              </option>
+            ))}
+          </select>
+        </div>
 
-        <label htmlFor="issue-priority">Priority</label>
-        <select
-          id="issue-priority"
-          value={filterValue('priority')}
-          onChange={(event) => setFilter('priority', event.target.value)}
-        >
-          <option value="">All priorities</option>
-          {ISSUE_PRIORITIES.map((priority) => (
-            <option key={priority} value={priority}>
-              {priority}
-            </option>
-          ))}
-        </select>
-
-        <label htmlFor="issue-sprint">Sprint</label>
-        <select
-          id="issue-sprint"
-          value={filterValue('sprintId')}
-          onChange={(event) => setFilter('sprintId', event.target.value)}
-        >
-          <option value="">All sprints</option>
-          {project.sprints.map((sprint) => (
-            <option key={sprint.id} value={sprint.id}>
-              {sprint.name}
-            </option>
-          ))}
-        </select>
+        <div className="field">
+          <label htmlFor="issue-sprint">Sprint</label>
+          <select
+            id="issue-sprint"
+            value={filterValue('sprintId')}
+            onChange={(event) => setFilter('sprintId', event.target.value)}
+          >
+            <option value="">All sprints</option>
+            {project.sprints.map((sprint) => (
+              <option key={sprint.id} value={sprint.id}>
+                {sprint.name}
+              </option>
+            ))}
+          </select>
+        </div>
       </form>
 
       {/* Only the list waits, so changing a filter never blanks the whole page. */}
@@ -281,93 +321,127 @@ export default function ProjectDetailPage() {
       )}
 
       {result && result.issues.length > 0 && (
-        <ul>
+        <ul className="record-list panel">
           {result.issues.map((issue) => (
             <li key={issue.id}>
-              <Link to={`/app/workspaces/${workspaceId}/projects/${projectId}/issues/${issue.id}`}>
-                {issue.displayKey} {issue.title}
-              </Link>{' '}
-              <StatusBadge status={issue.status} /> <PriorityBadge priority={issue.priority} />{' '}
-              <span>{issue.assignee ? issue.assignee.name : 'Unassigned'}</span>
+              <Link
+                className="record__title"
+                to={`/app/workspaces/${workspaceId}/projects/${projectId}/issues/${issue.id}`}
+              >
+                <span className="issue-key">{issue.displayKey}</span>
+                {issue.title}
+              </Link>
+              <p className="record__meta">
+                <StatusBadge status={issue.status} />
+                <PriorityBadge priority={issue.priority} />
+                <span>{issue.assignee ? issue.assignee.name : 'Unassigned'}</span>
+              </p>
             </li>
           ))}
         </ul>
       )}
 
       {result && (
-        <nav aria-label="Issue pages">
+        <nav className="pagination" aria-label="Issue pages">
           <p>
             Page {result.pagination.page} of {result.pagination.totalPages} —{' '}
             {result.pagination.total} issues
           </p>
-          <button
-            type="button"
-            disabled={!result.pagination.hasPreviousPage}
-            onClick={() => goToPage(page - 1)}
-          >
-            Previous page
-          </button>
-          <button
-            type="button"
-            disabled={!result.pagination.hasNextPage}
-            onClick={() => goToPage(page + 1)}
-          >
-            Next page
-          </button>
+          <span className="pagination__buttons">
+            <button
+              type="button"
+              disabled={!result.pagination.hasPreviousPage}
+              onClick={() => goToPage(page - 1)}
+            >
+              Previous page
+            </button>
+            <button
+              type="button"
+              disabled={!result.pagination.hasNextPage}
+              onClick={() => goToPage(page + 1)}
+            >
+              Next page
+            </button>
+          </span>
         </nav>
       )}
 
       {canManage && (
         <>
-          <h2>Project settings</h2>
+          <form className="panel form" onSubmit={handleRename}>
+            <h2>Project settings</h2>
 
-          <form onSubmit={handleRename}>
-            <label htmlFor="project-name">Project name</label>
-            <input
-              id="project-name"
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              required
-              minLength={2}
-              maxLength={100}
-            />
-            <button type="submit" disabled={isBusy}>
-              Save name
-            </button>
+            <div className="field">
+              <label htmlFor="project-name">Project name</label>
+              <input
+                id="project-name"
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                required
+                minLength={2}
+                maxLength={100}
+              />
+              <span className="field__hint">
+                The key {project.key} is fixed and cannot be renamed.
+              </span>
+            </div>
+
+            <div className="form__row">
+              <button type="submit" disabled={isBusy}>
+                Save name
+              </button>
+              <button
+                type="button"
+                disabled={isBusy}
+                onClick={() =>
+                  updateMutation.mutate({
+                    status: project.status === 'ARCHIVED' ? 'ACTIVE' : 'ARCHIVED',
+                  })
+                }
+              >
+                {project.status === 'ARCHIVED' ? 'Reactivate project' : 'Archive project'}
+              </button>
+            </div>
           </form>
 
-          <button
-            type="button"
-            disabled={isBusy}
-            onClick={() =>
-              updateMutation.mutate({
-                status: project.status === 'ARCHIVED' ? 'ACTIVE' : 'ARCHIVED',
-              })
-            }
-          >
-            {project.status === 'ARCHIVED' ? 'Reactivate project' : 'Archive project'}
-          </button>
+          {/* Deleting is permanent, so it is separated from the settings above
+              and asked again in a dialog. */}
+          <section className="panel panel--danger stack--tight">
+            <h2>Danger zone</h2>
+            <p className="muted">
+              Deleting {project.key} also removes its sprints, issues and comments. Archiving keeps
+              everything and only hides the project from the active list.
+            </p>
 
-          {/* Deleting is permanent, so it always takes a second, explicit click. */}
-          {isConfirmingDelete ? (
-            <>
-              <p role="alert">
+            <div className="record__actions">
+              <button
+                type="button"
+                className="btn--danger"
+                onClick={() => setIsConfirmingDelete(true)}
+                disabled={isBusy}
+              >
+                Delete project
+              </button>
+            </div>
+
+            {isConfirmingDelete && (
+              <ConfirmDialog
+                title={`Delete ${project.key}?`}
+                confirmLabel="Confirm delete"
+                isBusy={isBusy}
+                onCancel={() => setIsConfirmingDelete(false)}
+                onConfirm={() => deleteMutation.mutate()}
+              >
                 Deleting this project also removes its sprints and issues. This cannot be undone.
-              </p>
-              <button type="button" onClick={() => deleteMutation.mutate()} disabled={isBusy}>
-                Confirm delete
-              </button>
-              <button type="button" onClick={() => setIsConfirmingDelete(false)} disabled={isBusy}>
-                Cancel
-              </button>
-            </>
-          ) : (
-            <button type="button" onClick={() => setIsConfirmingDelete(true)} disabled={isBusy}>
-              Delete project
-            </button>
-          )}
+              </ConfirmDialog>
+            )}
+          </section>
 
-          {actionError && <p role="alert">{actionError}</p>}
+          {actionError && (
+            <p className="form-error" role="alert">
+              {actionError}
+            </p>
+          )}
         </>
       )}
     </>

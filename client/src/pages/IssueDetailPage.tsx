@@ -1,13 +1,14 @@
 import { useMutation, useQueries, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 
 import ActivityFeed from '../components/ActivityFeed';
 import Breadcrumbs from '../components/Breadcrumbs';
 import CommentSection from '../components/CommentSection';
+import ConfirmDialog from '../components/ConfirmDialog';
 import PageHeader from '../components/PageHeader';
-import { PriorityBadge, StatusBadge } from '../components/badges';
+import { PRIORITY_LABELS, PriorityBadge, StatusBadge, TypeBadge } from '../components/badges';
 import { ErrorState, LoadingState, PermissionNotice } from '../components/states';
 import { errorMessage } from '../lib/apiClient';
 import { listIssueActivities } from '../lib/collaborationApi';
@@ -16,6 +17,8 @@ import {
   ISSUE_PRIORITIES,
   ISSUE_STATUSES,
   ISSUE_TYPES,
+  STATUS_LABELS,
+  TYPE_LABELS,
   deleteIssue,
   getIssue,
   listSprints,
@@ -179,38 +182,80 @@ export default function IssueDetailPage() {
         ]}
       />
 
-      <PageHeader title={`${detail.displayKey} ${detail.title}`} />
+      <PageHeader
+        title={detail.title}
+        actions={
+          <>
+            {detail.permissions.canUpdate && !isEditing && (
+              <button type="button" onClick={() => setIsEditing(true)}>
+                Edit issue
+              </button>
+            )}
 
-      <p>
-        <StatusBadge status={detail.status} /> <PriorityBadge priority={detail.priority} />
+            {detail.permissions.canDelete && (
+              <button
+                type="button"
+                className="btn--danger"
+                onClick={() => setIsConfirmingDelete(true)}
+                disabled={isBusy}
+              >
+                Delete issue
+              </button>
+            )}
+          </>
+        }
+      />
+
+      <p className="record__meta">
+        <span className="issue-key">{detail.displayKey}</span>
+        <StatusBadge status={detail.status} />
+        <PriorityBadge priority={detail.priority} />
+        <TypeBadge type={detail.type} />
       </p>
 
-      <dl>
-        <dt>Description</dt>
-        <dd>{detail.description ?? 'No description.'}</dd>
-        <dt>Type</dt>
-        <dd>{detail.type}</dd>
-        <dt>Status</dt>
-        <dd>{detail.status}</dd>
-        <dt>Priority</dt>
-        <dd>{detail.priority}</dd>
-        <dt>Reporter</dt>
-        <dd>{detail.reporter.name}</dd>
-        <dt>Assignee</dt>
-        <dd>{detail.assignee ? detail.assignee.name : 'Unassigned'}</dd>
-        <dt>Sprint</dt>
-        <dd>{detail.sprint ? detail.sprint.name : 'No sprint'}</dd>
-        <dt>Due date</dt>
-        <dd>{formatDate(detail.dueDate)}</dd>
-        <dt>Created</dt>
-        <dd>{formatDate(detail.createdAt)}</dd>
-        <dt>Updated</dt>
-        <dd>{formatDate(detail.updatedAt)}</dd>
+      <section className="panel stack--tight" aria-labelledby="issue-description-heading">
+        <h2 id="issue-description-heading">Description</h2>
+        <p className="issue-description">{detail.description ?? 'No description.'}</p>
+      </section>
+
+      <dl className="panel meta-grid">
+        <div>
+          <dt>Type</dt>
+          <dd>{TYPE_LABELS[detail.type]}</dd>
+        </div>
+        <div>
+          <dt>Status</dt>
+          <dd>{STATUS_LABELS[detail.status]}</dd>
+        </div>
+        <div>
+          <dt>Priority</dt>
+          <dd>{PRIORITY_LABELS[detail.priority]}</dd>
+        </div>
+        <div>
+          <dt>Reporter</dt>
+          <dd>{detail.reporter.name}</dd>
+        </div>
+        <div>
+          <dt>Assignee</dt>
+          <dd>{detail.assignee ? detail.assignee.name : 'Unassigned'}</dd>
+        </div>
+        <div>
+          <dt>Sprint</dt>
+          <dd>{detail.sprint ? detail.sprint.name : 'No sprint'}</dd>
+        </div>
+        <div>
+          <dt>Due date</dt>
+          <dd>{formatDate(detail.dueDate)}</dd>
+        </div>
+        <div>
+          <dt>Created</dt>
+          <dd>{formatDate(detail.createdAt)}</dd>
+        </div>
+        <div>
+          <dt>Updated</dt>
+          <dd>{formatDate(detail.updatedAt)}</dd>
+        </div>
       </dl>
-
-      <p>
-        <Link to={`/app/workspaces/${workspaceId}/projects/${projectId}`}>Back to the project</Link>
-      </p>
 
       {/* The server decided these two flags; the page only reads them. */}
       {!detail.permissions.canUpdate && (
@@ -219,136 +264,150 @@ export default function IssueDetailPage() {
         </PermissionNotice>
       )}
 
-      {detail.permissions.canUpdate && !isEditing && (
-        <button type="button" onClick={() => setIsEditing(true)}>
-          Edit issue
-        </button>
-      )}
-
       {detail.permissions.canUpdate && isEditing && (
-        <form onSubmit={handleSave}>
+        <form className="panel form" onSubmit={handleSave}>
           <h2>Edit issue</h2>
 
-          <label htmlFor="issue-title">Title</label>
-          <input
-            id="issue-title"
-            value={title}
-            onChange={(event) => setTitle(event.target.value)}
-            required
-            minLength={2}
-            maxLength={200}
-          />
+          <div className="field">
+            <label htmlFor="issue-title">Title</label>
+            <input
+              id="issue-title"
+              value={title}
+              onChange={(event) => setTitle(event.target.value)}
+              required
+              minLength={2}
+              maxLength={200}
+            />
+          </div>
 
-          <label htmlFor="issue-description">Description</label>
-          <textarea
-            id="issue-description"
-            value={description}
-            onChange={(event) => setDescription(event.target.value)}
-            maxLength={10000}
-          />
+          <div className="field">
+            <label htmlFor="issue-description">Description</label>
+            <textarea
+              id="issue-description"
+              value={description}
+              onChange={(event) => setDescription(event.target.value)}
+              maxLength={10000}
+            />
+          </div>
 
-          <label htmlFor="issue-type">Type</label>
-          <select
-            id="issue-type"
-            value={type}
-            onChange={(event) => setType(event.target.value as IssueType)}
-          >
-            {ISSUE_TYPES.map((value) => (
-              <option key={value} value={value}>
-                {value}
-              </option>
-            ))}
-          </select>
+          <div className="form__row">
+            <div className="field" style={{ flex: '1 1 8rem' }}>
+              <label htmlFor="issue-type">Type</label>
+              <select
+                id="issue-type"
+                value={type}
+                onChange={(event) => setType(event.target.value as IssueType)}
+              >
+                {ISSUE_TYPES.map((value) => (
+                  <option key={value} value={value}>
+                    {TYPE_LABELS[value]}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-          <label htmlFor="issue-status">Status</label>
-          <select
-            id="issue-status"
-            value={status}
-            onChange={(event) => setStatus(event.target.value as IssueStatus)}
-          >
-            {ISSUE_STATUSES.map((value) => (
-              <option key={value} value={value}>
-                {value}
-              </option>
-            ))}
-          </select>
+            <div className="field" style={{ flex: '1 1 8rem' }}>
+              <label htmlFor="issue-status">Status</label>
+              <select
+                id="issue-status"
+                value={status}
+                onChange={(event) => setStatus(event.target.value as IssueStatus)}
+              >
+                {ISSUE_STATUSES.map((value) => (
+                  <option key={value} value={value}>
+                    {STATUS_LABELS[value]}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-          <label htmlFor="issue-priority">Priority</label>
-          <select
-            id="issue-priority"
-            value={priority}
-            onChange={(event) => setPriority(event.target.value as IssuePriority)}
-          >
-            {ISSUE_PRIORITIES.map((value) => (
-              <option key={value} value={value}>
-                {value}
-              </option>
-            ))}
-          </select>
+            <div className="field" style={{ flex: '1 1 8rem' }}>
+              <label htmlFor="issue-priority">Priority</label>
+              <select
+                id="issue-priority"
+                value={priority}
+                onChange={(event) => setPriority(event.target.value as IssuePriority)}
+              >
+                {ISSUE_PRIORITIES.map((value) => (
+                  <option key={value} value={value}>
+                    {PRIORITY_LABELS[value]}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
 
-          <label htmlFor="issue-assignee">Assignee</label>
-          <select
-            id="issue-assignee"
-            value={assigneeId}
-            onChange={(event) => setAssigneeId(event.target.value)}
-          >
-            <option value="">Unassigned</option>
-            {members.map((member) => (
-              <option key={member.id} value={member.userId}>
-                {member.name}
-              </option>
-            ))}
-          </select>
+          <div className="field">
+            <label htmlFor="issue-assignee">Assignee</label>
+            <select
+              id="issue-assignee"
+              value={assigneeId}
+              onChange={(event) => setAssigneeId(event.target.value)}
+            >
+              <option value="">Unassigned</option>
+              {members.map((member) => (
+                <option key={member.id} value={member.userId}>
+                  {member.name}
+                </option>
+              ))}
+            </select>
+          </div>
 
-          <label htmlFor="issue-sprint">Sprint</label>
-          <select
-            id="issue-sprint"
-            value={sprintId}
-            onChange={(event) => setSprintId(event.target.value)}
-          >
-            <option value="">No sprint</option>
-            {sprints.map((sprint) => (
-              <option key={sprint.id} value={sprint.id}>
-                {sprint.name}
-              </option>
-            ))}
-          </select>
+          <div className="field">
+            <label htmlFor="issue-sprint">Sprint</label>
+            <select
+              id="issue-sprint"
+              value={sprintId}
+              onChange={(event) => setSprintId(event.target.value)}
+            >
+              <option value="">No sprint</option>
+              {sprints.map((sprint) => (
+                <option key={sprint.id} value={sprint.id}>
+                  {sprint.name}
+                </option>
+              ))}
+            </select>
+          </div>
 
-          <label htmlFor="issue-due-date">Due date</label>
-          <input
-            id="issue-due-date"
-            type="date"
-            value={dueDate}
-            onChange={(event) => setDueDate(event.target.value)}
-          />
+          <div className="field">
+            <label htmlFor="issue-due-date">Due date</label>
+            <input
+              id="issue-due-date"
+              type="date"
+              value={dueDate}
+              onChange={(event) => setDueDate(event.target.value)}
+            />
+          </div>
 
-          <button type="submit" disabled={isBusy}>
-            Save issue
-          </button>
-          <button type="button" onClick={() => setIsEditing(false)} disabled={isBusy}>
-            Cancel
-          </button>
+          <div className="form__row">
+            <button type="submit" disabled={isBusy}>
+              Save issue
+            </button>
+            <button type="button" onClick={() => setIsEditing(false)} disabled={isBusy}>
+              Cancel
+            </button>
+          </div>
         </form>
       )}
 
-      {detail.permissions.canDelete &&
-        (isConfirmingDelete ? (
-          <>
-            <p role="alert">Deleting this issue cannot be undone.</p>
-            <button type="button" onClick={() => deleteMutation.mutate()} disabled={isBusy}>
-              Confirm delete
-            </button>
-            <button type="button" onClick={() => setIsConfirmingDelete(false)} disabled={isBusy}>
-              Cancel delete
-            </button>
-          </>
-        ) : (
-          <button type="button" onClick={() => setIsConfirmingDelete(true)} disabled={isBusy}>
-            Delete issue
-          </button>
-        ))}
+      {detail.permissions.canDelete && isConfirmingDelete && (
+        <ConfirmDialog
+          title={`Delete ${detail.displayKey}?`}
+          confirmLabel="Confirm delete"
+          cancelLabel="Cancel delete"
+          isBusy={isBusy}
+          onCancel={() => setIsConfirmingDelete(false)}
+          onConfirm={() => deleteMutation.mutate()}
+        >
+          Deleting this issue also removes its comments and cannot be undone.
+        </ConfirmDialog>
+      )}
 
-      {actionError && <p role="alert">{actionError}</p>}
+      {actionError && (
+        <p className="form-error" role="alert">
+          {actionError}
+        </p>
+      )}
 
       <CommentSection workspaceId={workspaceId} projectId={projectId} issueId={issueId} />
 

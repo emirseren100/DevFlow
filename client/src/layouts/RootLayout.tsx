@@ -1,28 +1,51 @@
-import { NavLink, Outlet } from 'react-router-dom';
+import { Link, NavLink, Outlet } from 'react-router-dom';
 
-const links = [
-  { to: '/', label: 'Home', end: true },
-  { to: '/login', label: 'Login', end: false },
-  { to: '/register', label: 'Register', end: false },
-  { to: '/app', label: 'App', end: false },
-];
+import { useAuth } from '../auth/AuthProvider';
 
+/**
+ * The public frame: home, login and register.
+ *
+ * It shows the same wordmark and the same surfaces as the signed-in
+ * application, so signing in changes what is on the page, not what the product
+ * looks like. Which links appear depends on whether there is a session.
+ */
 export default function RootLayout() {
+  const { isAuthenticated } = useAuth();
+
   return (
     <div className="layout">
       <header className="layout__header">
-        <span className="layout__brand">DevFlow</span>
+        <Link to="/" className="brand">
+          <span className="brand__mark" aria-hidden="true">
+            DF
+          </span>
+          DevFlow
+        </Link>
+
         <nav aria-label="Main navigation">
-          {links.map((link) => (
+          {isAuthenticated ? (
             <NavLink
-              key={link.to}
-              to={link.to}
-              end={link.end}
+              to="/app"
               className={({ isActive }) => (isActive ? 'nav-link nav-link--active' : 'nav-link')}
             >
-              {link.label}
+              Open the app
             </NavLink>
-          ))}
+          ) : (
+            <>
+              <NavLink
+                to="/login"
+                className={({ isActive }) => (isActive ? 'nav-link nav-link--active' : 'nav-link')}
+              >
+                Login
+              </NavLink>
+              <NavLink
+                to="/register"
+                className={({ isActive }) => (isActive ? 'nav-link nav-link--active' : 'nav-link')}
+              >
+                Register
+              </NavLink>
+            </>
+          )}
         </nav>
       </header>
 
@@ -30,7 +53,9 @@ export default function RootLayout() {
         <Outlet />
       </main>
 
-      <footer className="layout__footer">DevFlow — Phase 1 scaffolding</footer>
+      <footer className="layout__footer">
+        DevFlow — issue and sprint management for small software teams.
+      </footer>
     </div>
   );
 }

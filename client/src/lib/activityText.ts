@@ -13,10 +13,30 @@ function actorName(activity: ActivityItem): string {
   return activity.actor?.name ?? 'System';
 }
 
-function statusLabel(value: unknown): string {
+function statusLabel(value: unknown): string | null {
   return typeof value === 'string' && value in STATUS_LABELS
     ? STATUS_LABELS[value as IssueStatus]
-    : 'unknown';
+    : null;
+}
+
+/**
+ * A status change whose metadata is incomplete still happened, so it is still
+ * reported — just without the half of the sentence that cannot be filled in.
+ * "from unknown to unknown" reads like a bug; "changed the status" does not.
+ */
+function statusChangeText(who: string, issue: string, metadata: ActivityItem['metadata']): string {
+  const from = statusLabel(metadata.previousStatus);
+  const to = statusLabel(metadata.nextStatus);
+
+  if (from && to) {
+    return `${who} moved ${issue} from ${from} to ${to}`;
+  }
+
+  if (to) {
+    return `${who} moved ${issue} to ${to}`;
+  }
+
+  return `${who} changed the status of ${issue}`;
 }
 
 function issueLabel(activity: ActivityItem): string {
@@ -37,7 +57,7 @@ export function activityText(activity: ActivityItem): string {
     case 'ISSUE_CREATED':
       return `${who} created ${issue}`;
     case 'ISSUE_STATUS_CHANGED':
-      return `${who} moved ${issue} from ${statusLabel(activity.metadata.previousStatus)} to ${statusLabel(activity.metadata.nextStatus)}`;
+      return statusChangeText(who, issue, activity.metadata);
     case 'ISSUE_ASSIGNED':
       return activity.metadata.nextAssigneeId
         ? `${who} changed the assignee of ${issue}`

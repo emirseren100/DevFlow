@@ -738,3 +738,209 @@ because a date sent by a browser can be wrong or forged. Finally, loading, empty
 and error states are shared components, so no screen is ever blank, an empty
 state always names the next useful action, and a 403 explains the missing
 permission instead of showing an error nobody can act on.
+
+
+## Phase 8 — Security, Testing, Docker and CI
+
+**Phase:** 8 — Testing hardening, security, Docker and continuous integration
+(2026-07-26)
+
+**Concepts learned:**
+- Environment validation — configuration arrives as strings from outside the
+  program, so it is untrusted input like any other. Parsing it once with a
+  schema turns `PORT` into a number, restricts `NODE_ENV` to three known values
+  and refuses to start at all without `DATABASE_URL`. Failing at startup with
+  "CLIENT_ORIGIN must be an absolute origin" beats failing at midnight with a
+  CORS error nobody can explain. The message names the variable and the rule,
+  never the value, because one of those values is a database password.
+- Security headers — small instructions to the browser about how to treat a
+  response: do not sniff the content type, do not put this page in a frame, use
+  HTTPS next time. Helmet sets a sensible set in one line. A
+  Content-Security-Policy is the big one, and it protects a *document*; an API
+  that only returns JSON has no document to protect, which is why it belongs to
+  whatever serves the HTML instead.
+- Rate limiting — a cap on how many times one client may call something in a
+  window. It matters on login, where an attacker can otherwise try passwords
+  forever. It is applied to login and register only, because a limit on every
+  route would break normal use, and the refusal must look identical for a real
+  and a fake email or the limiter itself becomes a way to find accounts.
+- Request size limits — without one, anybody can stream gigabytes of JSON into
+  the process and exhaust its memory: a denial-of-service that needs no exploit
+  at all. 100kb is ten times the largest description the schema allows, so real
+  content passes and everything else gets a clean 413.
+- CORS — the browser rule that a page on origin A may not *read* a response from
+  origin B unless B says so. It protects the user, not the server: a request can
+  still arrive, the browser just refuses to hand the answer to the page. With
+  cookies involved the origin must be one exact value, because `*` and
+  credentials are not allowed together.
+- CSRF and origin checks — the browser attaches the session cookie no matter
+  which page caused the request, so a form on a hostile site could act as a
+  logged-in user. The defence used here is to check that a state-changing
+  request carries `Origin: <the client>`. Page JavaScript cannot forge that
+  header, so the check is meaningful, and it is fifteen readable lines rather
+  than a token-issuing framework.
+- Production-safe errors — a stack trace tells an attacker the framework, the
+  file layout and often the query that failed. In production every unexpected
+  failure becomes one sentence and `INTERNAL_ERROR`; the detail goes to the
+  server log, which only a developer can read.
+- Docker images and containers — an *image* is a read-only recipe of a
+  filesystem plus a command; a *container* is one running instance of it.
+  Deleting a container throws away everything it wrote, which is why databases
+  need volumes.
+- Volumes — a directory that lives outside the container's own filesystem, so
+  PostgreSQL data survives a restart, a rebuild and `docker compose down`.
+  Removing it (`down -v`) is a separate, deliberate command precisely because
+  it destroys every row.
+- Docker networks — Compose puts the services on one private network where they
+  reach each other by *service name* on the real port (`postgres:5432`). The
+  host port mapping (`5433:5432`) exists only for humans on the laptop, and is
+  chosen so the containers do not collide with software already installed.
+- Multi-stage builds — build in one stage with the whole toolchain, then copy
+  only the result into a clean final stage. The shipped image ends up with
+  compiled JavaScript and production dependencies instead of the compiler, the
+  tests and the source: smaller, and much less to attack.
+- Healthchecks — a command the platform runs to ask "is this actually ready?".
+  A started PostgreSQL container is not the same as a PostgreSQL accepting
+  connections, so the server waits for `pg_isready` rather than for the
+  container to exist. Without that the first migration races the database.
+- Database migrations in CI — `migrate deploy` replays the committed migration
+  files against an empty database. It never authors a migration, never prompts
+  and never resets, which is what makes it safe to automate — and running it in
+  CI proves the migration history really applies, not just that it exists.
+- Continuous integration — a machine that runs the same checks on every change,
+  from a clean checkout, so "it works on my laptop" stops being an argument.
+  Install, validate the schema, migrate, typecheck, test, build; any failure
+  fails the whole job, and nothing is allowed to fail softly.
+- Test isolation — a test must not depend on another test, on the order they
+  run in, or on data somebody seeded once. Each suite here owns an email domain
+  and cleans only its own rows, the database URL must contain `devflow_test`
+  before anything connects, and mocks are restored between tests. The reward is
+  that a failure means something is broken, not that the tests interfered.
+- Code coverage — the percentage of lines the tests executed. It finds code
+  nobody tested at all, which is useful; it says nothing about whether the code
+  is *correct*, because a fully covered function can still return the wrong
+  answer. That is why there is no threshold to chase here.
+
+**Mistakes and corrections:**
+- The container was going to install production dependencies only, which would
+  have left `prisma migrate deploy` with no CLI to run. Moving the Prisma CLI
+  from devDependencies to dependencies is the honest fix: it is genuinely
+  needed at runtime, so that is where it belongs.
+- Enabling the allowed-origin check broke nothing in the suite, which was
+  suspicious until it made sense: Supertest sends no `Origin`, and the rule
+  deliberately allows a missing header outside production. The security test
+  therefore sets an origin explicitly, so the accepted and rejected cases are
+  both proved rather than assumed.
+- The rate limiter cannot simply be switched on during tests: the suite
+  registers dozens of accounts from one address and would start failing at the
+  eleventh. Disabling it under `NODE_ENV=test` and testing the behaviour
+  through a purpose-built limiter with a maximum of two keeps both the suite
+  fast and the feature covered.
+
+**Interview explanation:**
+Phase 8 turned a working application into one that could actually be handed to
+somebody. On the security side the server now validates its whole environment
+with Zod at startup — numbers parsed, `NODE_ENV` restricted, `DATABASE_URL`
+required — and fails with the variable name and the broken rule rather than the
+value, because that value contains a password. Helmet sets the standard
+headers, `X-Powered-By` is off, the JSON body is capped at 100kb so nobody can
+exhaust memory for free, login and register are rate limited per IP with a
+response that is identical for real and fake emails, and every state-changing
+request must carry an `Origin` matching the configured client. That last one is
+the interesting piece: because the browser attaches the session cookie whatever
+page caused the request, a hostile page could otherwise act as the logged-in
+user, and checking an `Origin` that page JavaScript cannot forge buys most of
+what a CSRF token would, in about fifteen readable lines. Unexpected failures
+answer one fixed sentence and `INTERNAL_ERROR`, so no stack trace or Prisma
+message ever reaches a client. On the infrastructure side both sides get
+multi-stage Docker images, so the shipped image holds compiled JavaScript and
+production dependencies instead of the whole toolchain, and Compose runs
+PostgreSQL, the API and an nginx-served client on one private network — the
+server waits for the database *healthcheck*, not merely for the container, then
+runs `prisma migrate deploy`, which unlike `migrate dev` can never author a
+migration or reset a database. The seed never runs automatically, because it
+creates accounts with a shared documented password. Finally, GitHub Actions
+runs the same npm scripts a developer runs, against a disposable `devflow_test`
+PostgreSQL service, so a pull request proves the migrations apply, the types
+check, the tests pass and the production build succeeds before anybody reviews
+it. Deployment itself is deliberately the next phase, because TLS and the real
+topology change what `SameSite` and the origin rule have to say.
+
+---
+
+## Phase 9A — Final UI/UX Refinement and Browser QA
+
+**Phase:** 9A — Final UI/UX Refinement and Browser QA (2026-07-27)
+
+**Concepts learned:**
+- Design tokens — naming the colours, spacing and type sizes once, at the top of
+  one file, is what makes a hand-written stylesheet stay consistent. A component
+  that picks its own hex value is the moment the system dies.
+- Component reuse over abstraction — the repeated blocks (badge, panel, record
+  list, filter bar, confirmation dialog) earned a shared name; a `<Text>` or a
+  `<Box>` wrapper around every HTML element would have been ceremony.
+- Responsive application layouts — a management application is not an article.
+  What matters is which pane collapses, which text is dropped first, and where
+  a horizontal scroll is honest (a five-column board) rather than a bug.
+- Accessibility as behaviour, not decoration — landmarks, heading order, a
+  visible focus ring, a dialog that takes focus and gives it back, and status
+  spelled out in words rather than signalled by colour.
+- Browser QA — reading the rendered accessibility tree and computed styles finds
+  what source review cannot: a duplicated landmark, an enum leaking to a screen,
+  a four-pixel overflow, a contrast step that misses 4.5:1.
+- Regression testing a visual change — a redesign moves user-visible text, so
+  the tests that broke were doing their job. Each one was updated to the new
+  wording, never deleted to make the phase pass.
+- Role-based UI versus server authorization — hiding a control is a courtesy to
+  the user, not a protection. Every hidden action was re-checked in the browser as
+  OWNER, ADMIN and MEMBER, and the server was not touched at all.
+
+**Files understood:**
+- `client/src/index.css` — the whole visual language: tokens, then elements,
+  then components, then two responsive passes. One file, so there is one place
+  to look when something is inconsistent.
+- `client/src/components/ConfirmDialog.tsx` — the one modal for destructive
+  actions: focus starts on Cancel, Tab is trapped, Escape closes, focus returns.
+- `client/src/lib/activityText.ts` — why the wording lives in the client: the
+  database stores structured fields, so a sentence can be rewritten without a
+  migration.
+
+**Problems solved:**
+- Raw enums on screen (`IN_PROGRESS`, `URGENT`, `ACTIVE`, `OWNER`) — the label
+  maps existed only for issue status — added `TYPE_LABELS`,
+  `PROJECT_STATUS_LABELS`, `SPRINT_STATUS_LABELS` and `ROLE_LABELS` and used
+  them in every filter, option and badge.
+- "moved API-3 from unknown to unknown" — an older activity row carries no
+  status metadata and the formatter printed its fallback twice — the sentence
+  now degrades to "changed the status of API-3" instead of reading like a bug.
+- A second `banner` landmark inside `<main>` — `PageHeader` rendered a
+  `<header>` — it renders a `div`; the page heading is still the only `h1`.
+- A four-pixel horizontal overflow on the board — a negative margin on the
+  scroll container — removed it and kept only the bottom padding for the
+  scrollbar.
+- Timestamps and hints at 3.85:1 contrast — the faintest text token was too
+  dark for 12px text — lightened `--text-faint` until every step clears 4.5:1.
+- A drag handle that competed with the card link — the drag listeners now sit on
+  the handle button only, so clicking a title always opens the issue.
+
+**Interview explanation:**
+Phase 9A turned a working but unstyled application into something that looks
+like a product. The whole visual language is one CSS file with a token block at
+the top — four surfaces, three text steps, one emerald accent, six spacing
+steps, one radius, one focus ring — and the rule that no component may invent a
+colour. I deliberately added no UI framework: a framework would have decided the
+identity for me, and everything here is a badge, a panel, a list or a form. The
+part I would defend in review is that I audited the rendered pages in a browser
+rather than the source. That is how I found a raw `IN_PROGRESS` in a filter, a
+duplicated banner landmark, a four-pixel overflow on the Kanban board and a text
+colour that missed the 4.5:1 contrast minimum — none of which are visible in a
+component file. I also re-ran the whole product as owner, admin and member,
+because a redesign is exactly the moment a permission check accidentally becomes
+a styling decision; the server was not touched in this phase, and hiding a
+button is still only a courtesy on top of a check the API performs again. The
+destructive actions moved from "click delete twice" to one shared modal that
+takes focus, traps Tab and closes on Escape, so deleting a project now
+interrupts the way it should. Sixteen existing tests broke because the wording
+and structure they asserted genuinely changed; I updated each one and added
+seven new ones for the behaviour the phase introduced — the collapsible
+navigation, the dialog's accessibility contract and the shared 403 state.

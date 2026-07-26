@@ -194,7 +194,7 @@ describe('project list page', () => {
     mockApi(baseHandlers('MEMBER'));
     renderApp('/app/workspaces/w1/projects');
 
-    expect(await screen.findByRole('link', { name: /API — Orbit API/ })).toBeInTheDocument();
+    expect(await screen.findByRole('link', { name: /API Orbit API/ })).toBeInTheDocument();
     expect(screen.getByText(/2 open of 3 issues/)).toBeInTheDocument();
   });
 
@@ -247,7 +247,9 @@ describe('project detail page', () => {
     renderApp('/app/workspaces/w1/projects/p1');
 
     expect(await screen.findByRole('heading', { name: /API — Orbit API/ })).toBeInTheDocument();
-    expect(screen.getByText(/API Sprint 1 — ACTIVE — 2 issues/)).toBeInTheDocument();
+    // The sprint is both a row of the sprint list and an option of the filter.
+    expect(screen.getAllByText('API Sprint 1').length).toBeGreaterThan(0);
+    expect(screen.getByText('2 issues')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /API-1 Login screen flickers/ })).toBeInTheDocument();
   });
 
@@ -383,9 +385,12 @@ describe('issue detail page', () => {
     });
     renderApp('/app/workspaces/w1/projects/p1/issues/i1');
 
+    // The heading carries the title; the key is its own prominent label.
     expect(
-      await screen.findByRole('heading', { name: /API-1 Login screen flickers/ }),
+      await screen.findByRole('heading', { level: 1, name: 'Login screen flickers' }),
     ).toBeInTheDocument();
+    // The key appears in the breadcrumb trail and next to the badges.
+    expect(screen.getAllByText('API-1').length).toBeGreaterThan(0);
     expect(screen.getByText('Only on Safari.')).toBeInTheDocument();
     expect(screen.getByText('Kerem Demir')).toBeInTheDocument();
   });

@@ -499,6 +499,152 @@ of the query key, so back, forward, reload and a shared link restore the same
 list, each filter combination is cached separately, and a late answer for an old
 filter cannot overwrite the current one.
 
+## 9.4 Security, Containers and CI (Phase 8)
+
+**Environment validation.** `server/src/config.ts` parses `process.env` with
+Zod exactly once, at import time, and everything else imports the resulting
+`config`. `PORT` and `SESSION_TTL_DAYS` are turned into numbers, `NODE_ENV` is
+restricted to `development | test | production`, `CLIENT_ORIGIN` must be an
+absolute http(s) origin with no path, and `DATABASE_URL` has no default — a
+missing one stops the process instead of connecting somewhere unexpected. The
+failure message lists variable names and broken rules only; a value is never
+echoed, because `DATABASE_URL` carries a password.
+
+**Middleware order** in `createApp()` is deliberate:
+
+```
+disable x-powered-by
+  -> helmet            (headers on every response, errors included)
+  -> cors              (must answer the preflight before anything refuses it)
+  -> express.json 100kb (a size limit, so a body cannot exhaust memory)
+  -> cookie-parser     (the session token arrives as a cookie)
+  -> requireAllowedOrigin (mutations only; after CORS so OPTIONS still works)
+  -> auth rate limiter (mounted on the two auth paths only)
+  -> routers
+  -> notFound -> errorHandler
+```
+
+**Rate limiting** applies to `POST /api/auth/login` and
+`POST /api/auth/register` and nowhere else: those are the guessable endpoints,
+and a global limit would punish a normal session, since one board screen makes
+several requests. The counter is per IP and in memory — correct for one
+process, and something a multi-instance deployment has to replace with a shared
+store. A blocked attempt answers `429 RATE_LIMITED` through the normal error
+handler, with wording that is identical for a known and an unknown email.
+
+**Origin validation.** A cookie is attached by the browser no matter which page
+started the request, so `POST`, `PUT`, `PATCH` and `DELETE` must carry an
+`Origin` equal to `CLIENT_ORIGIN`. `GET`, `HEAD` and `OPTIONS` are never
+blocked. A *missing* `Origin` is accepted outside production because browsers
+always send it on those methods and page JavaScript cannot set it, so a request
+without one is not a browser; production refuses it as well. This is a small
+readable check, not a CSRF-token framework, and the deployment topology (same
+site, subdomain, or a proxy in front) changes what `SameSite=Lax` covers, so it
+must be reviewed again in the deployment phase.
+
+**Production error handling.** The error handler classifies `ApiError` and the
+two failures `express.json()` raises before any route runs
+(`PAYLOAD_TOO_LARGE`, `MALFORMED_JSON`). Everything else becomes
+`500 INTERNAL_ERROR` with one fixed sentence: no stack trace, no Prisma
+message, no file path and no environment value leaves the process. The detail is
+logged instead — except under `NODE_ENV=test`, where failure paths are exercised
+on purpose and their stack traces would bury the test output.
+
+**Test-database isolation.** `prisma/testDbUrl.ts` refuses any `DATABASE_URL`
+that does not contain `devflow_test`, and the guard runs before the app — and
+therefore before Prisma — is imported. Each suite owns an email domain and
+cleans only its own rows, so files are independent and none of them reads the
+development seed. Vitest restores mocks and stubs between tests, and the server
+project disables file parallelism because all suites share one database.
+
+**Docker services.**
+
+```
+Client container (nginx :80)
+  -> Server container (node :4000)
+    -> PostgreSQL container (:5432)
+```
+
+Both images are multi-stage: a build stage holds the toolchain, and the runtime
+stage keeps only what actually runs — compiled JavaScript and production
+dependencies for the server, static files and nginx for the client. Vite inlines
+`VITE_API_URL` at build time, so the client image takes it as a build argument
+rather than a runtime variable.
+
+**Docker networking.** Inside the Compose network services address each other by
+service name on their real ports (`postgres:5432`). The host mapping exists only
+for humans and is chosen not to collide with a local setup: the client is
+published on `5175` (the Vite dev server keeps `5174`) and PostgreSQL on `5433`
+(an installed PostgreSQL keeps `5432`).
+
+**Migrations at container start.** The server waits for the database
+*healthcheck*, not merely for a started container, then runs
+`prisma migrate deploy` before `node dist/server.js`. `deploy` only replays
+committed migrations: it never authors one, never prompts and never resets. The
+development seed is never run automatically.
+
+**CI verification flow.** `.github/workflows/ci.yml` runs on pull requests and
+pushes to `main` against a disposable `devflow_test` PostgreSQL service:
+
+```
+npm ci -> db:validate -> db:generate -> db:deploy -> typecheck -> test -> build
+```
+
+Every step is an npm script that also works from the repository root on a
+developer machine, so CI cannot drift from local behaviour, and no step is
+allowed to fail softly. The workflow verifies only; deployment is Phase 9.
+
+## 9.5 The Visual System (Phase 9A)
+
+**One stylesheet, three layers.** `client/src/index.css` is the whole visual
+language, in a fixed order: custom-property tokens, then the browser elements
+the application actually uses, then the repeated blocks. Nothing is styled
+anywhere else — there is no CSS module, no CSS-in-JS and no UI framework. A
+component that needs a colour reads a token; a component that invents one is the
+bug.
+
+**Tokens.** Four surfaces (`--bg`, `--surface`, `--surface-raised`,
+`--surface-sunken`), two border weights, three text steps, one accent
+(`--accent`) reserved for the active state and the primary action, four
+semantic colours (danger, warning, success, info), six spacing steps, one
+radius scale, one focus ring, five type sizes. Hierarchy comes from the surface
+and the border, never from a shadow.
+
+**Why no framework.** The application is a shell, a form, a list, a badge and a
+dialog. A component library would ship a design system and its opinions for
+five kinds of block, and would have to be fought whenever it disagreed; utility
+CSS would move the same decisions into the markup. The trade-off is recorded in
+`DECISIONS.md` row 79.
+
+**Presentation stays in the client.** The API keeps returning database enums
+(`IN_PROGRESS`, `URGENT`, `ARCHIVED`, `OWNER`). The label maps that turn them
+into words live next to the API types — `TYPE_LABELS`,
+`PROJECT_STATUS_LABELS`, `SPRINT_STATUS_LABELS` in `projectApi.ts`,
+`ROLE_LABELS` in `workspaceApi.ts`, `PRIORITY_LABELS` in `badges.tsx` — so
+wording changes need no migration and no API change. `activityText.ts` already
+worked this way for activity sentences, and now degrades gracefully when a row
+carries no status metadata.
+
+**Accessibility is structural, not cosmetic.** One `banner`, one `main`, one
+`h1` per page — `PageHeader` renders a `div` precisely so it cannot become a
+second banner landmark inside `main`. Status is never signalled by colour
+alone: every badge spells its value out, and the dashboard bars are
+`aria-hidden` because the number beside them already carries the information.
+Every text step clears 4.5:1 against the surface it sits on.
+
+**Destructive actions share one modal.** `ConfirmDialog` replaced the inline
+"click delete twice" pattern for workspaces, projects, issues, comments and
+memberships. It is `role="dialog" aria-modal="true"`, named by its own heading,
+opens focus on **Cancel**, traps Tab, closes on Escape and returns focus to the
+control that opened it — one accessibility contract to get right instead of
+five.
+
+**Responsive layout** stays structural: the 900px breakpoint collapses the
+navigation behind the Menu button and drops the user's email, a 560px pass
+stacks the filter bar and gives page and dialog actions full-width touch
+targets, and the Kanban board scrolls sideways at every width because five
+columns squeezed into a phone are unreadable, not responsive.
+
 ## 10. Docker Compose
 
 - Local development starts with Compose providing **PostgreSQL** (and optionally

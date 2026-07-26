@@ -4,6 +4,7 @@ import type { FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
 import PageHeader from '../components/PageHeader';
+import { RoleBadge } from '../components/badges';
 import { EmptyState, ErrorState, LoadingState } from '../components/states';
 import { useWorkspacesQuery } from '../hooks/useWorkspaces';
 import { errorMessage } from '../lib/apiClient';
@@ -65,39 +66,51 @@ export default function WorkspaceListPage() {
       )}
 
       {workspaces.length > 0 && (
-        <ul>
+        <ul className="cards">
           {workspaces.map((workspace) => (
-            <li key={workspace.id}>
-              <Link to={`/app/workspaces/${workspace.id}/dashboard`}>{workspace.name}</Link>
-              <span> — {workspace.role}</span>
-              <span>
-                {' '}
-                — {workspace.memberCount} {workspace.memberCount === 1 ? 'member' : 'members'}
-              </span>
+            <li className="card" key={workspace.id}>
+              <Link className="record__title" to={`/app/workspaces/${workspace.id}/dashboard`}>
+                {workspace.name}
+              </Link>
+              <p className="record__meta">
+                <RoleBadge role={workspace.role} />
+                <span>
+                  {workspace.memberCount} {workspace.memberCount === 1 ? 'member' : 'members'}
+                </span>
+              </p>
             </li>
           ))}
         </ul>
       )}
 
-      <form onSubmit={handleCreate}>
+      <form className="panel form" onSubmit={handleCreate}>
         <h2>Create a workspace</h2>
 
-        <label htmlFor="workspace-name">Workspace name</label>
-        <input
-          id="workspace-name"
-          name="name"
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-          required
-          minLength={2}
-          maxLength={80}
-        />
+        <div className="field">
+          <label htmlFor="workspace-name">Workspace name</label>
+          <input
+            id="workspace-name"
+            name="name"
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            required
+            minLength={2}
+            maxLength={80}
+          />
+          <span className="field__hint">You become the owner of the workspaces you create.</span>
+        </div>
 
-        {createError && <p role="alert">{createError}</p>}
+        {createError && (
+          <p className="form-error" role="alert">
+            {createError}
+          </p>
+        )}
 
-        <button type="submit" disabled={createMutation.isPending}>
-          {createMutation.isPending ? 'Creating…' : 'Create workspace'}
-        </button>
+        <div className="form__row">
+          <button type="submit" disabled={createMutation.isPending}>
+            {createMutation.isPending ? 'Creating…' : 'Create workspace'}
+          </button>
+        </div>
       </form>
     </>
   );

@@ -4,12 +4,15 @@ import type { FormEvent } from 'react';
 import { useParams } from 'react-router-dom';
 
 import Breadcrumbs from '../components/Breadcrumbs';
+import ConfirmDialog from '../components/ConfirmDialog';
 import PageHeader from '../components/PageHeader';
+import { RoleBadge } from '../components/badges';
 import { ErrorState, LoadingState, PermissionNotice } from '../components/states';
 import { errorMessage } from '../lib/apiClient';
 import { queryKeys } from '../lib/queryKeys';
 import type { AssignableRole, WorkspaceMember } from '../lib/workspaceApi';
 import {
+  ROLE_LABELS,
   addMember,
   assignableRoles,
   canManageWorkspace,
@@ -19,6 +22,9 @@ import {
   removeMember,
   updateMemberRole,
 } from '../lib/workspaceApi';
+
+/** The two roles the per-member selector may switch between. */
+const ASSIGNABLE_ROLES: AssignableRole[] = ['MEMBER', 'ADMIN'];
 
 /**
  * The only place where workspace membership is managed.
@@ -32,6 +38,7 @@ export default function MembersPage() {
 
   const [memberEmail, setMemberEmail] = useState('');
   const [memberRole, setMemberRole] = useState<AssignableRole>('MEMBER');
+  const [removingMember, setRemovingMember] = useState<WorkspaceMember | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
   const workspaceQuery = useQuery({
@@ -129,80 +136,115 @@ export default function MembersPage() {
         description={`${workspace.memberCount} people can reach ${workspace.name}.`}
       />
 
-      {actionError && <p role="alert">{actionError}</p>}
+      {actionError && (
+        <p className="form-error" role="alert">
+          {actionError}
+        </p>
+      )}
 
-      <ul className="members">
+      <ul className="record-list panel">
         {members.map((member: WorkspaceMember) => (
           <li key={member.id}>
-            <span>
-              {member.name} ({member.email}) — {member.role}
+            <span className="record__title">
+              {member.name} <RoleBadge role={member.role} />
             </span>
+            <span className="record__meta">{member.email}</span>
 
-            {/* Only the owner may change roles, and never the owner's own. */}
-            {workspace.role === 'OWNER' && member.role !== 'OWNER' && (
-              <>
-                <label htmlFor={`role-${member.id}`}>Role for {member.name}</label>
-                <select
-                  id={`role-${member.id}`}
-                  value={member.role}
+            <div className="record__actions">
+              {/* Only the owner may change roles, and never the owner's own. */}
+              {workspace.role === 'OWNER' && member.role !== 'OWNER' && (
+                <div className="field">
+                  <label htmlFor={`role-${member.id}`}>Role for {member.name}</label>
+                  <select
+                    id={`role-${member.id}`}
+                    value={member.role}
+                    disabled={isBusy}
+                    onChange={(event) =>
+                      roleMutation.mutate({
+                        memberId: member.id,
+                        role: event.target.value as AssignableRole,
+                      })
+                    }
+                  >
+                    {ASSIGNABLE_ROLES.map((role) => (
+                      <option key={role} value={role}>
+                        {ROLE_LABELS[role]}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Removing somebody ends their access at once, so it is asked
+                  again in a dialog and never styled like an ordinary button. */}
+              {canRemoveMember(workspace.role, member.role) && (
+                <button
+                  type="button"
+                  className="btn--danger"
                   disabled={isBusy}
-                  onChange={(event) =>
-                    roleMutation.mutate({
-                      memberId: member.id,
-                      role: event.target.value as AssignableRole,
-                    })
-                  }
+                  onClick={() => setRemovingMember(member)}
                 >
-                  <option value="MEMBER">MEMBER</option>
-                  <option value="ADMIN">ADMIN</option>
-                </select>
-              </>
-            )}
-
-            {canRemoveMember(workspace.role, member.role) && (
-              <button
-                type="button"
-                disabled={isBusy}
-                onClick={() => removeMutation.mutate(member.id)}
-              >
-                Remove {member.name}
-              </button>
-            )}
+                  Remove {member.name}
+                </button>
+              )}
+            </div>
           </li>
         ))}
       </ul>
 
+      {removingMember && (
+        <ConfirmDialog
+          title={`Remove ${removingMember.name}?`}
+          confirmLabel="Confirm removal"
+          isBusy={isBusy}
+          onCancel={() => setRemovingMember(null)}
+          onConfirm={() => {
+            removeMutation.mutate(removingMember.id);
+            setRemovingMember(null);
+          }}
+        >
+          {removingMember.name} loses access to {workspace.name} and everything inside it. Their
+          issues and comments stay.
+        </ConfirmDialog>
+      )}
+
       {canManage ? (
-        <form onSubmit={handleAdd}>
+        <form className="panel form" onSubmit={handleAdd}>
           <h2>Add a member</h2>
-          <p>Only people who already have a DevFlow account can be added.</p>
+          <p className="muted">Only people who already have a DevFlow account can be added.</p>
 
-          <label htmlFor="member-email">Member email</label>
-          <input
-            id="member-email"
-            name="email"
-            type="email"
-            value={memberEmail}
-            onChange={(event) => setMemberEmail(event.target.value)}
-            required
-          />
+          <div className="field">
+            <label htmlFor="member-email">Member email</label>
+            <input
+              id="member-email"
+              name="email"
+              type="email"
+              value={memberEmail}
+              onChange={(event) => setMemberEmail(event.target.value)}
+              required
+            />
+          </div>
 
-          <label htmlFor="member-role">Member role</label>
-          <select
-            id="member-role"
-            value={memberRole}
-            onChange={(event) => setMemberRole(event.target.value as AssignableRole)}
-          >
-            {assignableRoles(workspace.role).map((role) => (
-              <option key={role} value={role}>
-                {role}
-              </option>
-            ))}
-          </select>
+          <div className="field">
+            <label htmlFor="member-role">Member role</label>
+            <select
+              id="member-role"
+              value={memberRole}
+              onChange={(event) => setMemberRole(event.target.value as AssignableRole)}
+            >
+              {assignableRoles(workspace.role).map((role) => (
+                <option key={role} value={role}>
+                  {ROLE_LABELS[role]}
+                </option>
+              ))}
+            </select>
+          </div>
 
-          <button type="submit" disabled={isBusy}>
-            Add member
-          </button>
+          <div className="form__row">
+            <button type="submit" disabled={isBusy}>
+              Add member
+            </button>
+          </div>
         </form>
       ) : (
         <PermissionNotice>

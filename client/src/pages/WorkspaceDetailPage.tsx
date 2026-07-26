@@ -4,7 +4,9 @@ import type { FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 
 import Breadcrumbs from '../components/Breadcrumbs';
+import ConfirmDialog from '../components/ConfirmDialog';
 import PageHeader from '../components/PageHeader';
+import { RoleBadge } from '../components/badges';
 import { ErrorState, LoadingState, PermissionNotice } from '../components/states';
 import { errorMessage } from '../lib/apiClient';
 import { queryKeys } from '../lib/queryKeys';
@@ -100,64 +102,99 @@ export default function WorkspaceDetailPage() {
         ]}
       />
 
-      <PageHeader title={workspace.name} description={`Your role: ${workspace.role}`} />
+      <PageHeader
+        title={workspace.name}
+        description="Workspace settings. Membership is managed on its own page."
+      />
 
-      <p>Slug: {workspace.slug}</p>
-      <p>
-        Owner: {workspace.owner.name} ({workspace.owner.email})
-      </p>
-      <p>
-        {workspace.memberCount} {workspace.memberCount === 1 ? 'member' : 'members'} —{' '}
-        <Link to={`/app/workspaces/${workspaceId}/members`}>Manage members</Link>
-      </p>
+      <dl className="panel meta-grid">
+        <div>
+          <dt>Your role</dt>
+          <dd>
+            <RoleBadge role={workspace.role} />
+          </dd>
+        </div>
+        <div>
+          <dt>Slug</dt>
+          <dd>{workspace.slug}</dd>
+        </div>
+        <div>
+          <dt>Owner</dt>
+          <dd>
+            {workspace.owner.name} ({workspace.owner.email})
+          </dd>
+        </div>
+        <div>
+          <dt>Members</dt>
+          <dd>
+            {workspace.memberCount} — <Link to={`/app/workspaces/${workspaceId}/members`}>Manage members</Link>
+          </dd>
+        </div>
+      </dl>
 
-      {actionError && <p role="alert">{actionError}</p>}
+      {actionError && (
+        <p className="form-error" role="alert">
+          {actionError}
+        </p>
+      )}
 
       {canManage ? (
-        <form onSubmit={handleRename}>
+        <form className="panel form" onSubmit={handleRename}>
           <h2>Rename workspace</h2>
 
-          <label htmlFor="workspace-name">Workspace name</label>
-          <input
-            id="workspace-name"
-            name="name"
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            required
-            minLength={2}
-            maxLength={80}
-          />
+          <div className="field">
+            <label htmlFor="workspace-name">Workspace name</label>
+            <input
+              id="workspace-name"
+              name="name"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              required
+              minLength={2}
+              maxLength={80}
+            />
+          </div>
 
-          <button type="submit" disabled={isBusy}>
-            Save name
-          </button>
+          <div className="form__row">
+            <button type="submit" disabled={isBusy}>
+              Save name
+            </button>
+          </div>
         </form>
       ) : (
         <PermissionNotice>Only an owner or an admin can rename this workspace.</PermissionNotice>
       )}
 
       {canDeleteWorkspace(workspace.role) && (
-        <div>
+        <section className="panel panel--danger stack--tight">
           <h2>Danger zone</h2>
+          <p className="muted">
+            Deleting a workspace removes its memberships, projects, issues and comments. There is
+            no undo.
+          </p>
 
-          {isConfirmingDelete ? (
-            <>
-              <p role="alert">
-                Deleting this workspace also removes its memberships and cannot be undone.
-              </p>
-              <button type="button" disabled={isBusy} onClick={() => deleteMutation.mutate()}>
-                Confirm delete
-              </button>
-              <button type="button" onClick={() => setIsConfirmingDelete(false)}>
-                Cancel
-              </button>
-            </>
-          ) : (
-            <button type="button" onClick={() => setIsConfirmingDelete(true)}>
+          <div className="record__actions">
+            <button
+              type="button"
+              className="btn--danger"
+              onClick={() => setIsConfirmingDelete(true)}
+            >
               Delete workspace
             </button>
+          </div>
+
+          {isConfirmingDelete && (
+            <ConfirmDialog
+              title={`Delete ${workspace.name}?`}
+              confirmLabel="Confirm delete"
+              isBusy={isBusy}
+              onCancel={() => setIsConfirmingDelete(false)}
+              onConfirm={() => deleteMutation.mutate()}
+            >
+              Deleting this workspace also removes its memberships and cannot be undone.
+            </ConfirmDialog>
           )}
-        </div>
+        </section>
       )}
     </>
   );

@@ -13,14 +13,16 @@ export default function PageHeader({
   description?: string;
   actions?: ReactNode;
 }) {
+  // A plain `div`, not a `header`: this sits inside `<main>`, and a second
+  // banner landmark there only adds noise for a screen-reader user.
   return (
-    <header className="page-header">
+    <div className="page-header">
       <div>
         <h1>{title}</h1>
         {description && <p className="page-header__description">{description}</p>}
       </div>
 
       {actions && <div className="page-header__actions">{actions}</div>}
-    </header>
+    </div>
   );
 }

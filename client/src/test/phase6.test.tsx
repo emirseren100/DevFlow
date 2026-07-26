@@ -185,7 +185,7 @@ describe('Kanban board page', () => {
     renderApp('/app/workspaces/w1/projects/p1/board');
 
     for (const name of ['Backlog', 'To Do', 'In Progress', 'In Review', 'Done']) {
-      expect(await screen.findByRole('heading', { name: `${name} (0)` })).toBeInTheDocument();
+      expect(await screen.findByRole('heading', { name: `${name} 0` })).toBeInTheDocument();
     }
 
     expect(screen.getAllByText('No issue in this column.')).toHaveLength(5);
@@ -202,8 +202,11 @@ describe('Kanban board page', () => {
 
     expect(await screen.findByRole('link', { name: 'API-1 Card 1' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'API-2 Card 2' })).toBeInTheDocument();
-    expect(screen.getByText(/TASK — MEDIUM — Kerem Demir/)).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'To Do (1)' })).toBeInTheDocument();
+    // Type, priority and assignee are three separate labels on the card.
+    expect(screen.getAllByText('Task').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Priority: Medium').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Kerem Demir').length).toBeGreaterThan(0);
+    expect(screen.getByRole('heading', { name: 'To Do 1' })).toBeInTheDocument();
   });
 
   it('gives no drag handle and no move control to a card the server locked', async () => {
@@ -239,8 +242,8 @@ describe('Kanban board page', () => {
       });
     });
 
-    expect(await screen.findByRole('heading', { name: 'In Progress (1)' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'To Do (0)' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'In Progress 1' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'To Do 0' })).toBeInTheDocument();
   });
 
   it('never sends a role, a reporter or a board state with a move', async () => {
@@ -272,8 +275,8 @@ describe('Kanban board page', () => {
     await userEvent.selectOptions(await screen.findByLabelText('Move API-1 to'), 'DONE');
 
     expect(await screen.findByRole('alert')).toHaveTextContent('FORBIDDEN');
-    expect(await screen.findByRole('heading', { name: 'To Do (1)' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Done (0)' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'To Do 1' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Done 0' })).toBeInTheDocument();
     // Rolled back, not duplicated.
     expect(screen.getAllByRole('link', { name: 'API-1 Card 1' })).toHaveLength(1);
   });
@@ -381,7 +384,7 @@ describe('comments on the issue page', () => {
       expect(JSON.parse(String(call?.[1]?.body))).toEqual({ body: 'First.' });
     });
 
-    expect(await screen.findByText('(edited)')).toBeInTheDocument();
+    expect(await screen.findByText('edited')).toBeInTheDocument();
   });
 
   it('asks for a confirmation before deleting a comment', async () => {

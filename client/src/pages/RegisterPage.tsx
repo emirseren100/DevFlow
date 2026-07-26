@@ -35,64 +35,78 @@ export default function RegisterPage() {
   function fieldError(field: string) {
     const messages = fieldErrors[field];
 
-    return messages?.length ? <span role="alert">{messages[0]}</span> : null;
+    return messages?.length ? (
+      <span className="field__error" role="alert">
+        {messages[0]}
+      </span>
+    ) : null;
   }
 
   return (
-    <section>
-      <h1>Register</h1>
-
-      <form onSubmit={handleSubmit} noValidate>
-        <p>
-          <label htmlFor="register-name">Name</label>
-          <input
-            id="register-name"
-            name="name"
-            type="text"
-            autoComplete="name"
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            required
-          />
-          {fieldError('name')}
+    <section className="auth">
+      <div className="auth__card">
+        <h1>Register</h1>
+        <p className="auth__lead">
+          Create an account, then start a workspace or accept an invitation to one.
         </p>
 
-        <p>
-          <label htmlFor="register-email">Email</label>
-          <input
-            id="register-email"
-            name="email"
-            type="email"
-            autoComplete="email"
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-            required
-          />
-          {fieldError('email')}
-        </p>
+        <form className="auth__form" onSubmit={handleSubmit} noValidate>
+          <div className="field">
+            <label htmlFor="register-name">Name</label>
+            <input
+              id="register-name"
+              name="name"
+              type="text"
+              autoComplete="name"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              required
+            />
+            {fieldError('name')}
+          </div>
 
-        <p>
-          <label htmlFor="register-password">Password</label>
-          <input
-            id="register-password"
-            name="password"
-            type="password"
-            autoComplete="new-password"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            required
-          />
-          {fieldError('password')}
-        </p>
+          <div className="field">
+            <label htmlFor="register-email">Email</label>
+            <input
+              id="register-email"
+              name="email"
+              type="email"
+              autoComplete="email"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              required
+            />
+            {fieldError('email')}
+          </div>
 
-        {error && Object.keys(fieldErrors).length === 0 ? <p role="alert">{error}</p> : null}
+          <div className="field">
+            <label htmlFor="register-password">Password</label>
+            <input
+              id="register-password"
+              name="password"
+              type="password"
+              autoComplete="new-password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              required
+            />
+            <span className="field__hint">At least 8 characters.</span>
+            {fieldError('password')}
+          </div>
 
-        <button type="submit" disabled={isSubmitting}>
-          {isSubmitting ? 'Creating account…' : 'Create account'}
-        </button>
-      </form>
+          {error && Object.keys(fieldErrors).length === 0 ? (
+            <p className="form-error" role="alert">
+              {error}
+            </p>
+          ) : null}
 
-      <p>
+          <button type="submit" disabled={isSubmitting}>
+            {isSubmitting ? 'Creating account…' : 'Create account'}
+          </button>
+        </form>
+      </div>
+
+      <p className="auth__footer">
         Already registered? <Link to="/login">Sign in</Link>
       </p>
     </section>

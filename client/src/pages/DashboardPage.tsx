@@ -11,6 +11,7 @@ import type { WorkspaceDashboard } from '../lib/dashboardApi';
 import type { IssuePriority, IssueStatus } from '../lib/projectApi';
 import { ISSUE_PRIORITIES, ISSUE_STATUSES, STATUS_LABELS, canManageProjects } from '../lib/projectApi';
 import { queryKeys } from '../lib/queryKeys';
+import { ROLE_LABELS } from '../lib/workspaceApi';
 
 /**
  * The workspace overview.
@@ -33,7 +34,11 @@ function SummaryCard({ label, value, to }: { label: string; value: number; to?: 
     <li className="card">
       <p className="card__label">{label}</p>
       <p className="card__value">{value}</p>
-      {to && <Link to={to}>View</Link>}
+      {to && (
+        <Link className="card__link" to={to}>
+          View
+        </Link>
+      )}
     </li>
   );
 }
@@ -57,11 +62,17 @@ function Distribution({
   const total = rows.reduce((sum, row) => sum + row.value, 0);
 
   return (
-    <section aria-labelledby={`distribution-${heading.replace(/\s+/g, '-').toLowerCase()}`}>
-      <h2 id={`distribution-${heading.replace(/\s+/g, '-').toLowerCase()}`}>{heading}</h2>
+    <section
+      className="panel"
+      aria-labelledby={`distribution-${heading.replace(/\s+/g, '-').toLowerCase()}`}
+    >
+      <div className="panel__header">
+        <h2 id={`distribution-${heading.replace(/\s+/g, '-').toLowerCase()}`}>{heading}</h2>
+        <span className="faint">{total} issues</span>
+      </div>
 
       {total === 0 ? (
-        <p>No issue to summarise yet.</p>
+        <p className="muted">No issue to summarise yet.</p>
       ) : (
         <ul className="distribution">
           {rows.map((row) => (
@@ -88,36 +99,50 @@ function RecentIssues({
 }) {
   if (dashboard.recentIssues.length === 0) {
     return (
-      <section aria-labelledby="recent-issues-heading">
-        <h2 id="recent-issues-heading">Recent issues</h2>
+      <section className="panel" aria-labelledby="recent-issues-heading">
+        <div className="panel__header">
+          <h2 id="recent-issues-heading">Recent issues</h2>
+        </div>
         <EmptyState
           title="No issue yet"
           description="Open a project and create the first issue to see activity here."
-          action={<Link to={`/app/workspaces/${workspaceId}/projects`}>Go to projects</Link>}
+          action={
+            <Link className="btn-link" to={`/app/workspaces/${workspaceId}/projects`}>
+              Go to projects
+            </Link>
+          }
         />
       </section>
     );
   }
 
   return (
-    <section aria-labelledby="recent-issues-heading">
-      <h2 id="recent-issues-heading">Recent issues</h2>
+    <section className="panel" aria-labelledby="recent-issues-heading">
+      <div className="panel__header">
+        <h2 id="recent-issues-heading">Recent issues</h2>
+        <Link className="faint" to={`/app/workspaces/${workspaceId}/projects`}>
+          All projects
+        </Link>
+      </div>
 
-      <ul className="recent-issues">
+      <ul className="record-list">
         {dashboard.recentIssues.map((issue) => (
           <li key={issue.id}>
             <Link
+              className="record__title"
               to={`/app/workspaces/${workspaceId}/projects/${issue.project.id}/issues/${issue.id}`}
             >
-              {issue.displayKey} {issue.title}
+              <span className="issue-key">{issue.displayKey}</span>
+              {issue.title}
             </Link>
 
-            <p className="recent-issues__meta">
+            <p className="record__meta">
               <span>
                 {issue.project.key} — {issue.project.name}
-              </span>{' '}
-              <StatusBadge status={issue.status} /> <PriorityBadge priority={issue.priority} />{' '}
-              <span>{issue.assignee ? issue.assignee.name : 'Unassigned'}</span>{' '}
+              </span>
+              <StatusBadge status={issue.status} />
+              <PriorityBadge priority={issue.priority} />
+              <span>{issue.assignee ? issue.assignee.name : 'Unassigned'}</span>
               <time dateTime={issue.updatedAt}>Updated {formatDateTime(issue.updatedAt)}</time>
             </p>
           </li>
@@ -159,12 +184,18 @@ export default function DashboardPage() {
 
       <PageHeader
         title={workspace.name}
-        description={`Overview of the whole workspace. Your role here is ${workspace.role}.`}
+        description={`Overview of the whole workspace. Your role here is ${ROLE_LABELS[workspace.role]}.`}
         actions={
           <>
-            {canManage && <Link to={`${base}/projects`}>Create a project</Link>}
+            {canManage && (
+              <Link className="btn-link" to={`${base}/projects`}>
+                Create a project
+              </Link>
+            )}
             {projectCount > 0 && (
-              <Link to={`${base}/projects`}>Choose a project to create an issue</Link>
+              <Link className="btn-link btn-link--secondary" to={`${base}/projects`}>
+                Open a project
+              </Link>
             )}
           </>
         }
@@ -180,11 +211,15 @@ export default function DashboardPage() {
               ? 'A project holds the sprints and issues of one piece of work. Create the first one to get started.'
               : 'An owner or an admin has to create the first project before there is anything to see here.'
           }
-          action={<Link to={`${base}/projects`}>Go to projects</Link>}
+          action={
+            <Link className="btn-link" to={`${base}/projects`}>
+              Go to projects
+            </Link>
+          }
         />
       ) : null}
 
-      <section aria-labelledby="summary-heading">
+      <section className="stack" aria-labelledby="summary-heading">
         <h2 id="summary-heading">At a glance</h2>
 
         <ul className="cards">
@@ -199,7 +234,7 @@ export default function DashboardPage() {
           <SummaryCard label="Members" value={workspace.memberCount} to={`${base}/members`} />
         </ul>
 
-        <p>
+        <p className="muted">
           {issueMetrics.assignedToMe === 0
             ? 'Nothing is assigned to you right now.'
             : `You have ${issueMetrics.assignedToMe} open issue(s) assigned to you.`}{' '}
@@ -211,7 +246,7 @@ export default function DashboardPage() {
         </p>
 
         {/* An issue is overdue when the server, not the browser, says so. */}
-        <p className="muted">
+        <p className="faint">
           Overdue is measured against the server time{' '}
           <time dateTime={dashboard.generatedAt}>{formatDateTime(dashboard.generatedAt)}</time>.
         </p>
@@ -237,8 +272,10 @@ export default function DashboardPage() {
 
       <RecentIssues dashboard={dashboard} workspaceId={workspace.id} />
 
-      <section aria-labelledby="recent-activity-heading">
-        <h2 id="recent-activity-heading">Recent activity</h2>
+      <section className="panel" aria-labelledby="recent-activity-heading">
+        <div className="panel__header">
+          <h2 id="recent-activity-heading">Recent activity</h2>
+        </div>
 
         {dashboard.recentActivity.length === 0 ? (
           <EmptyState
@@ -251,7 +288,7 @@ export default function DashboardPage() {
               <li key={activity.id}>
                 {/* The sentence is built in the client from structured fields;
                     the database never stores a formatted line. */}
-                {activityText(activity)}{' '}
+                <span>{activityText(activity)}</span>
                 <time dateTime={activity.createdAt}>{formatDateTime(activity.createdAt)}</time>
               </li>
             ))}

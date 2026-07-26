@@ -10,6 +10,7 @@ import {
   updateComment,
 } from '../lib/collaborationApi';
 import { queryKeys } from '../lib/queryKeys';
+import ConfirmDialog from './ConfirmDialog';
 import { EmptyState, ErrorState, LoadingState } from './states';
 
 interface CommentSectionProps {
@@ -104,8 +105,11 @@ export default function CommentSection({ workspaceId, projectId, issueId }: Comm
   }
 
   return (
-    <section aria-labelledby="comments-heading">
-      <h2 id="comments-heading">Comments</h2>
+    <section className="panel stack" aria-labelledby="comments-heading">
+      <div className="panel__header">
+        <h2 id="comments-heading">Comments</h2>
+        {comments.length > 0 && <span className="faint">{comments.length}</span>}
+      </div>
 
       {commentsQuery.isPending && <LoadingState label="Loading comments…" />}
 
@@ -121,99 +125,114 @@ export default function CommentSection({ workspaceId, projectId, issueId }: Comm
       )}
 
       {comments.length > 0 && (
-        <ul>
+        <ul className="comment-list">
           {comments.map((comment) => (
-            <li key={comment.id}>
-              <p>
-                <strong>{comment.author.name}</strong>{' '}
+            <li className="comment" key={comment.id}>
+              <p className="comment__head">
+                <strong className="comment__author">{comment.author.name}</strong>
                 <time dateTime={comment.createdAt}>
                   {new Date(comment.createdAt).toLocaleString()}
                 </time>
-                {comment.isEdited && <span> (edited)</span>}
+                {comment.isEdited && <span className="comment__edited">edited</span>}
               </p>
 
               {editingId === comment.id ? (
-                <form onSubmit={(event) => handleUpdate(event, comment.id)}>
-                  <label htmlFor={`edit-comment-${comment.id}`}>Edit comment</label>
-                  <textarea
-                    id={`edit-comment-${comment.id}`}
-                    value={editDraft}
-                    onChange={(event) => setEditDraft(event.target.value)}
-                    maxLength={5000}
-                    required
-                  />
-                  <button type="submit" disabled={isSubmitting}>
-                    Save comment
-                  </button>
-                  <button type="button" onClick={() => setEditingId(null)} disabled={isSubmitting}>
-                    Cancel edit
-                  </button>
+                <form className="form" onSubmit={(event) => handleUpdate(event, comment.id)}>
+                  <div className="field">
+                    <label htmlFor={`edit-comment-${comment.id}`}>Edit comment</label>
+                    <textarea
+                      id={`edit-comment-${comment.id}`}
+                      value={editDraft}
+                      onChange={(event) => setEditDraft(event.target.value)}
+                      maxLength={5000}
+                      required
+                    />
+                  </div>
+                  <div className="form__row">
+                    <button type="submit" disabled={isSubmitting}>
+                      Save comment
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditingId(null)}
+                      disabled={isSubmitting}
+                    >
+                      Cancel edit
+                    </button>
+                  </div>
                 </form>
               ) : (
-                <p style={{ whiteSpace: 'pre-wrap' }}>{comment.body}</p>
+                <p className="comment__body">{comment.body}</p>
               )}
 
-              {comment.permissions.canEdit && editingId !== comment.id && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setEditingId(comment.id);
-                    setEditDraft(comment.body);
-                  }}
-                  disabled={isSubmitting}
-                >
-                  Edit comment
-                </button>
-              )}
-
-              {comment.permissions.canDelete &&
-                (confirmingId === comment.id ? (
-                  <>
-                    <p role="alert">Deleting this comment cannot be undone.</p>
-                    <button
-                      type="button"
-                      onClick={() => deleteMutation.mutate(comment.id)}
-                      disabled={isSubmitting}
-                    >
-                      Confirm delete comment
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setConfirmingId(null)}
-                      disabled={isSubmitting}
-                    >
-                      Cancel delete comment
-                    </button>
-                  </>
-                ) : (
+              <div className="record__actions">
+                {comment.permissions.canEdit && editingId !== comment.id && (
                   <button
                     type="button"
+                    className="btn--ghost btn--sm"
+                    onClick={() => {
+                      setEditingId(comment.id);
+                      setEditDraft(comment.body);
+                    }}
+                    disabled={isSubmitting}
+                  >
+                    Edit comment
+                  </button>
+                )}
+
+                {comment.permissions.canDelete && (
+                  <button
+                    type="button"
+                    className="btn--ghost btn--sm"
                     onClick={() => setConfirmingId(comment.id)}
                     disabled={isSubmitting}
                   >
                     Delete comment
                   </button>
-                ))}
+                )}
+              </div>
+
+              {confirmingId === comment.id && (
+                <ConfirmDialog
+                  title="Delete this comment?"
+                  confirmLabel="Confirm delete comment"
+                  cancelLabel="Cancel delete comment"
+                  isBusy={isSubmitting}
+                  onCancel={() => setConfirmingId(null)}
+                  onConfirm={() => deleteMutation.mutate(comment.id)}
+                >
+                  Deleting this comment cannot be undone.
+                </ConfirmDialog>
+              )}
             </li>
           ))}
         </ul>
       )}
 
-      <form onSubmit={handleCreate}>
-        <label htmlFor="new-comment">Add a comment</label>
-        <textarea
-          id="new-comment"
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-          maxLength={5000}
-          required
-        />
-        <button type="submit" disabled={isSubmitting}>
-          {isSubmitting ? 'Saving comment…' : 'Add comment'}
-        </button>
+      <form className="form" onSubmit={handleCreate}>
+        <div className="field">
+          <label htmlFor="new-comment">Add a comment</label>
+          <textarea
+            id="new-comment"
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            maxLength={5000}
+            required
+          />
+          <span className="field__hint">Plain text. Line breaks are kept as written.</span>
+        </div>
+        <div className="form__row">
+          <button type="submit" disabled={isSubmitting}>
+            {isSubmitting ? 'Saving comment…' : 'Add comment'}
+          </button>
+        </div>
       </form>
 
-      {actionError && <p role="alert">{actionError}</p>}
+      {actionError && (
+        <p className="form-error" role="alert">
+          {actionError}
+        </p>
+      )}
     </section>
   );
 }

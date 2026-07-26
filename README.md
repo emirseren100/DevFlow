@@ -1,10 +1,10 @@
 # DevFlow
 
-> **Status: Phase 3 of 10 complete.** The client and server scaffolding runs, the
-> PostgreSQL schema exists with migrations and seed data, and email/password
-> authentication works with database-backed cookie sessions. There is still no
-> API for workspaces, projects or issues — the rest of "Planned Features" is
-> unbuilt.
+> **Status: Phase 9A of 10 complete.** The product is feature complete and now
+> has its visual identity: a dark application shell with one emerald accent, a
+> shared component and token set, and a responsive, keyboard-usable interface
+> verified in a browser at 1440, 1024, 768 and 390 pixels. What remains is
+> Phase 9B — GitHub, deployment and portfolio preparation. Nothing is deployed.
 
 ## Project Overview
 
@@ -16,21 +16,19 @@ discusses them in comments and reviews what changed in an activity feed.
 It is built as a portfolio project: a realistic, multi-user, permission-aware
 web application rather than a tutorial to-do list.
 
-## Planned Features
-
-Only the first item is implemented.
+## Features
 
 - [x] User registration and login with HTTP-only cookie sessions
-- [ ] Workspaces with member invitations and roles (owner, admin, member)
-- [ ] Projects inside a workspace
-- [ ] Issues typed as task or bug, with priority and status
-- [ ] Assigning issues to workspace members
-- [ ] Kanban board with drag-and-drop status changes
-- [ ] Comments on issues
-- [ ] Activity history for every issue change
-- [ ] Filtering by status, type and assignee, plus free-text search
-- [ ] Pagination and sorting on issue lists
-- [ ] Responsive interface
+- [x] Workspaces with member management and roles (owner, admin, member)
+- [x] Projects inside a workspace
+- [x] Issues typed as task or bug, with priority and status
+- [x] Assigning issues to workspace members
+- [x] Kanban board with drag-and-drop status changes
+- [x] Comments on issues
+- [x] Activity history for every issue change
+- [x] Filtering by status, type and assignee, plus free-text search
+- [x] Pagination and sorting on issue lists
+- [x] Responsive interface
 
 ## Technology Stack
 
@@ -79,16 +77,16 @@ Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 | 4 | Workspaces and membership | Complete |
 | 5 | Projects and issues | Complete |
 | 6 | Comments, activity and Kanban | Complete |
-| 7 | Frontend integration | Not started |
-| 8 | Testing, Docker, CI and security | Not started |
-| 9 | UI/UX, deployment and portfolio preparation | Not started |
+| 7 | Frontend integration | Complete |
+| 8 | Testing, Docker, CI and security | Complete |
+| 9A | Final UI/UX and browser QA | Complete |
+| 9B | GitHub, deployment and portfolio preparation | Not started |
 
 Full phase details: [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Current Status
 
-Phase 7 — Dashboard, application shell and frontend integration is complete.
-What exists today:
+Phase 9A — final UI/UX and browser QA is complete. What exists today:
 
 - npm workspaces root with `client` and `server`
 - React + TypeScript client on port **5174**: working `/login` and `/register`
@@ -121,12 +119,27 @@ What exists today:
   targeted invalidation after every mutation
 - Shared loading, empty and error states, including dedicated 403 and 404
   experiences
-- 264 passing tests: 82 client tests and 182 server tests (the authentication,
-  workspace, project, sprint, issue, comment, activity, Kanban and dashboard
-  integration tests need the dedicated test database)
+- Zod-validated server environment, Helmet security headers, a 100kb JSON body
+  limit, login/register rate limiting and an allowed-origin check on every
+  state-changing request
+- Multi-stage Dockerfiles for both sides and a Docker Compose stack
+  (PostgreSQL + API + nginx-served client) with a database healthcheck
+- A GitHub Actions workflow that validates the schema, applies migrations to a
+  disposable PostgreSQL service, typechecks, tests and builds
+- One visual system in `client/src/index.css`: colour, spacing, radius, focus
+  and type tokens at the top, then the browser elements the application uses,
+  then the repeated blocks — a dark charcoal shell with a single emerald accent,
+  no UI framework and no CSS-in-JS
+- Shared interface pieces: application shell, workspace switcher and navigation,
+  breadcrumbs, page header, project tabs, status/priority/type/role badges,
+  metric cards, record lists, filter bars, pagination, a modal confirmation
+  dialog and one loading, empty, error and permission state each
+- 291 passing tests: 89 client tests and 202 server tests (the authentication,
+  workspace, project, sprint, issue, comment, activity, Kanban, dashboard and
+  security integration tests need the dedicated test database)
 
-Not built yet: realtime updates, notifications, attachments, labels, subtasks,
-the final visual design, Docker and CI.
+Not built yet: realtime updates, notifications, attachments, labels, subtasks
+and any deployment.
 
 Current state at any time: [docs/PROJECT_STATE.md](docs/PROJECT_STATE.md).
 
@@ -598,6 +611,119 @@ so back, forward, reload and a shared link all restore the same list.
 7. Narrow the window to about 390px: the navigation collapses behind the
    **Menu** button, the cards wrap and the board scrolls sideways.
 
+### Security middleware
+
+Every response passes the same chain, in this order:
+
+1. **Helmet** - standard security headers (`X-Content-Type-Options`,
+   `X-Frame-Options`, HSTS and friends) and `X-Powered-By` removed, so the
+   response does not advertise the stack. `Content-Security-Policy` is switched
+   off here on purpose: this process only answers JSON, and a CSP protects a
+   *document*. The one that matters belongs to whatever serves the client - the
+   nginx container, and the deployment phase.
+2. **CORS** - one explicitly configured origin, `credentials: true`, never `*`
+   (a wildcard is not even allowed together with credentials).
+3. **JSON body limit** - `100kb`. A 10 000-character issue description is about
+   10kb, so normal content is unaffected; anything larger is refused with
+   `413 PAYLOAD_TOO_LARGE`, and a body that is not JSON with
+   `400 MALFORMED_JSON`.
+4. **Allowed-origin check** - `POST`, `PUT`, `PATCH` and `DELETE` must carry an
+   `Origin` header equal to `CLIENT_ORIGIN`, or the request is refused with
+   `403 INVALID_ORIGIN`. `GET`, `HEAD` and `OPTIONS` are never blocked, so the
+   CORS preflight still works.
+5. **Auth rate limit** - only `POST /api/auth/login` and
+   `POST /api/auth/register`: 10 attempts per IP per 15 minutes by default,
+   then `429 RATE_LIMITED`. The message is identical for a known and an unknown
+   email, so the limiter never becomes a way to discover accounts.
+
+A missing `Origin` on a mutation is accepted outside production, because a
+browser always sends the header on those methods and page JavaScript cannot
+forge it - a request without it is `curl`, a test agent or a development
+script. In production it is refused. This is not a CSRF-token framework, and
+the deployment topology has to be reviewed again in the deployment phase,
+because it changes what `SameSite=Lax` protects.
+
+Unexpected failures always answer `500 INTERNAL_ERROR` with one fixed sentence.
+No stack trace, Prisma message, file path or environment value ever reaches a
+client; the detail stays in the server log.
+
+### Environment validation
+
+`server/src/config.ts` parses `process.env` with Zod once, at startup. `PORT`
+and `SESSION_TTL_DAYS` become numbers, `NODE_ENV` may only be `development`,
+`test` or `production`, `CLIENT_ORIGIN` must be an absolute http(s) origin, and
+`DATABASE_URL` has no default at all. A mistake stops the process immediately
+with a list of variable names and the rule each one broke - never the value, so
+the database password is never printed.
+
+The client reads its configuration in one place too (`client/src/lib/env.ts`).
+Only `VITE_`-prefixed variables reach the browser bundle, and everything that
+does is public, so no secret may ever be put there. The client needs none: the
+session is an HTTP-only cookie the browser manages.
+
+### Docker development
+
+Docker is an alternative to the local setup above, not a replacement. It runs
+PostgreSQL, the API and the built client as three containers:
+
+```
+Client container (nginx :80)  ->  Server container (:4000)  ->  PostgreSQL container (:5432)
+```
+
+```bash
+cp .env.docker.example .env.docker
+```
+
+```bash
+docker compose --env-file .env.docker build
+```
+
+```bash
+docker compose --env-file .env.docker up
+```
+
+| What | Where |
+|---|---|
+| Client in Docker | http://localhost:5175 |
+| Client with `npm run dev` | http://localhost:5174 |
+| API (both setups) | http://localhost:4000 |
+| PostgreSQL from the host | `localhost:5433` |
+| PostgreSQL inside Compose | `postgres:5432` |
+
+The two client ports are deliberately different, so the Docker stack and a
+local `npm run dev` can run at the same time. The database is published on 5433
+for the same reason: an installed PostgreSQL keeps 5432.
+
+The server container applies the migration history with `prisma migrate deploy`
+before it starts, and waits for the database healthcheck first. It never runs
+`prisma migrate dev` and never runs the development seed.
+
+Stopping the stack keeps the data:
+
+```bash
+docker compose down
+```
+
+**Destructive.** This also deletes the named volume, and with it every row in
+the Docker PostgreSQL - accounts, workspaces, projects and issues:
+
+```bash
+docker compose down -v
+```
+
+The credentials in `.env.docker.example` are development-only. They exist so a
+container can talk to a container on one laptop and are committed as an example
+on purpose; a real deployment must use secrets that never live in a file.
+
+### Continuous integration
+
+`.github/workflows/ci.yml` runs on every pull request and on every push to
+`main`. It starts a disposable PostgreSQL service container named
+`devflow_test`, then runs the same npm scripts a developer runs locally, in
+order: `npm ci`, `db:validate`, `db:generate`, `db:deploy`, `typecheck`, `test`,
+`build`. Any failing step fails the job - nothing is marked
+`continue-on-error`. The workflow verifies; it does not deploy.
+
 ### Test database
 
 The authentication, workspace, project, sprint and issue tests write and delete
@@ -696,19 +822,67 @@ npm run typecheck
 npm test
 ```
 
-`npm test` includes the authentication and workspace integration tests, which need
-`server/.env.test` and `npm run db:test:prepare` (see "Test database" above).
+`npm test` runs the client suite and then the server suite. The server
+integration tests need `server/.env.test` and `npm run db:test:prepare` (see
+"Test database" above); the client tests need no database at all.
+
+Either side can be run on its own:
+
+```bash
+npm run test:client
+```
+
+```bash
+npm run test:server
+```
+
+```bash
+npm run test:coverage
+```
+
+Coverage writes a text summary, an HTML report under `client/coverage` and
+`server/coverage`, and an `lcov` file for tooling. It measures which lines the
+tests **executed**, not whether the product is correct: a fully covered function
+can still be wrong. There is deliberately no percentage threshold to chase.
+
+Migrations against a real database:
+
+```bash
+npm run db:deploy
+```
+
+`db:deploy` replays the committed migrations with `prisma migrate deploy`. It is
+what the container and CI use, because unlike `prisma migrate dev` it never
+creates a migration, never asks a question and never resets a database.
 
 ```bash
 npm run build
 ```
 
+## Interface
+
+The application ships one dark theme. The whole visual language lives in
+`client/src/index.css`:
+
+| Token group | What it decides |
+|---|---|
+| `--bg`, `--surface`, `--surface-raised`, `--surface-sunken` | The four planes every block sits on |
+| `--border`, `--border-strong` | Thin separators; hierarchy comes from the surface, not from shadows |
+| `--text`, `--text-muted`, `--text-faint` | Three steps of emphasis, each above 4.5:1 against its surface |
+| `--accent`, `--accent-soft` | One emerald, used for the active state and the primary action only |
+| `--danger`, `--warning`, `--success`, `--info` | Semantic colours, always paired with a word |
+| `--space-1` … `--space-6`, `--radius*`, `--text-xs` … `--text-xl` | Spacing, corners and type sizes |
+
+Two rules keep it consistent: no component invents a colour, and no state is
+signalled by colour alone — every badge spells its value out, so the interface
+survives a greyscale screen and a screen reader.
+
 ## Screenshots
 
-_Placeholder — screenshots will be added in Phase 9, when there is a working
-interface to show._
+_Placeholder — screenshots will be added in Phase 9B, together with the public
+demo._
 
 ## Live Demo
 
 _Placeholder — a public demo instance and a demo account will be added in
-Phase 9._
+Phase 9B. Nothing is deployed yet._

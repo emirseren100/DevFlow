@@ -5,11 +5,12 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 
 import Breadcrumbs from '../components/Breadcrumbs';
 import PageHeader from '../components/PageHeader';
+import { ProjectStatusBadge } from '../components/badges';
 import { EmptyState, ErrorState, LoadingState, PermissionNotice } from '../components/states';
 import { errorMessage } from '../lib/apiClient';
 import { canManageProjects, createProject, listProjects } from '../lib/projectApi';
 import { queryKeys } from '../lib/queryKeys';
-import { getWorkspace } from '../lib/workspaceApi';
+import { ROLE_LABELS, getWorkspace } from '../lib/workspaceApi';
 
 export default function ProjectListPage() {
   const { workspaceId = '' } = useParams();
@@ -79,28 +80,34 @@ export default function ProjectListPage() {
       <PageHeader
         title="Projects"
         {...(workspace
-          ? { description: `Workspace ${workspace.name} — your role is ${workspace.role}.` }
+          ? {
+              description: `Workspace ${workspace.name} — your role is ${ROLE_LABELS[workspace.role]}.`,
+            }
           : {})}
       />
 
-      <form role="search" onSubmit={(event) => event.preventDefault()}>
-        <label htmlFor="project-search">Search projects</label>
-        <input
-          id="project-search"
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-        />
+      <form className="filters" role="search" onSubmit={(event) => event.preventDefault()}>
+        <div className="field field--wide">
+          <label htmlFor="project-search">Search projects</label>
+          <input
+            id="project-search"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+          />
+        </div>
 
-        <label htmlFor="project-status">Status</label>
-        <select
-          id="project-status"
-          value={status}
-          onChange={(event) => setStatus(event.target.value)}
-        >
-          <option value="">All</option>
-          <option value="ACTIVE">Active</option>
-          <option value="ARCHIVED">Archived</option>
-        </select>
+        <div className="field">
+          <label htmlFor="project-status">Status</label>
+          <select
+            id="project-status"
+            value={status}
+            onChange={(event) => setStatus(event.target.value)}
+          >
+            <option value="">All</option>
+            <option value="ACTIVE">Active</option>
+            <option value="ARCHIVED">Archived</option>
+          </select>
+        </div>
       </form>
 
       {projectsQuery.isPending && <LoadingState label="Loading projects…" />}
@@ -121,17 +128,22 @@ export default function ProjectListPage() {
       )}
 
       {projects.length > 0 && (
-        <ul>
+        <ul className="record-list panel">
           {projects.map((project) => (
             <li key={project.id}>
-              <Link to={`/app/workspaces/${workspaceId}/projects/${project.id}`}>
-                {project.key} — {project.name}
+              <Link
+                className="record__title"
+                to={`/app/workspaces/${workspaceId}/projects/${project.id}`}
+              >
+                <span className="issue-key">{project.key}</span>
+                {project.name}
               </Link>
-              <span> — {project.status}</span>
-              <span>
-                {' '}
-                — {project.openIssueCount} open of {project.issueCount} issues
-              </span>
+              <p className="record__meta">
+                <ProjectStatusBadge status={project.status} />
+                <span>
+                  {project.openIssueCount} open of {project.issueCount} issues
+                </span>
+              </p>
             </li>
           ))}
         </ul>
@@ -140,42 +152,58 @@ export default function ProjectListPage() {
       {/* Only OWNER and ADMIN see this form. The server refuses the request from
           anybody else even if the form is recreated by hand. */}
       {canManage ? (
-        <form onSubmit={handleCreate}>
+        <form className="panel form" onSubmit={handleCreate}>
           <h2>Create a project</h2>
 
-          <label htmlFor="project-name">Project name</label>
-          <input
-            id="project-name"
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            required
-            minLength={2}
-            maxLength={100}
-          />
+          <div className="field">
+            <label htmlFor="project-name">Project name</label>
+            <input
+              id="project-name"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              required
+              minLength={2}
+              maxLength={100}
+            />
+          </div>
 
-          <label htmlFor="project-key">Project key</label>
-          <input
-            id="project-key"
-            value={key}
-            onChange={(event) => setKey(event.target.value.toUpperCase())}
-            required
-            minLength={2}
-            maxLength={10}
-          />
+          <div className="field">
+            <label htmlFor="project-key">Project key</label>
+            <input
+              id="project-key"
+              value={key}
+              onChange={(event) => setKey(event.target.value.toUpperCase())}
+              required
+              minLength={2}
+              maxLength={10}
+            />
+            <span className="field__hint">
+              Two to ten letters. It prefixes every issue of the project, as in WEB-14, and cannot
+              be changed later.
+            </span>
+          </div>
 
-          <label htmlFor="project-description">Description</label>
-          <textarea
-            id="project-description"
-            value={description}
-            onChange={(event) => setDescription(event.target.value)}
-            maxLength={1000}
-          />
+          <div className="field">
+            <label htmlFor="project-description">Description</label>
+            <textarea
+              id="project-description"
+              value={description}
+              onChange={(event) => setDescription(event.target.value)}
+              maxLength={1000}
+            />
+          </div>
 
-          {createError && <p role="alert">{createError}</p>}
+          {createError && (
+            <p className="form-error" role="alert">
+              {createError}
+            </p>
+          )}
 
-          <button type="submit" disabled={createMutation.isPending}>
-            {createMutation.isPending ? 'Creating…' : 'Create project'}
-          </button>
+          <div className="form__row">
+            <button type="submit" disabled={createMutation.isPending}>
+              {createMutation.isPending ? 'Creating…' : 'Create project'}
+            </button>
+          </div>
         </form>
       ) : (
         workspace && (

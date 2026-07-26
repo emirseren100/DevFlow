@@ -22,12 +22,13 @@ import { Link, useParams } from 'react-router-dom';
 import Breadcrumbs from '../components/Breadcrumbs';
 import PageHeader from '../components/PageHeader';
 import ProjectNav from '../components/ProjectNav';
+import { PriorityBadge } from '../components/badges';
 import { ErrorState, LoadingState } from '../components/states';
 import { errorMessage } from '../lib/apiClient';
 import type { Board, BoardColumn, BoardIssue } from '../lib/collaborationApi';
 import { getBoard, moveIssue } from '../lib/collaborationApi';
 import type { IssueStatus } from '../lib/projectApi';
-import { ISSUE_STATUSES, STATUS_LABELS } from '../lib/projectApi';
+import { ISSUE_STATUSES, STATUS_LABELS, TYPE_LABELS } from '../lib/projectApi';
 import { queryKeys } from '../lib/queryKeys';
 
 const COLUMN_PREFIX = 'column-';
@@ -78,29 +79,46 @@ function BoardCard({ issue, workspaceId, projectId, columnStatus, onMoveToStatus
   return (
     <li
       ref={setNodeRef}
+      className={issue.permissions.canMove ? 'board-card' : 'board-card board-card--locked'}
       style={{ transform: CSS.Translate.toString(transform), transition }}
       aria-label={`${issue.displayKey} ${issue.title}, column ${STATUS_LABELS[columnStatus]}`}
     >
-      <Link to={`/app/workspaces/${workspaceId}/projects/${projectId}/issues/${issue.id}`}>
-        {issue.displayKey} {issue.title}
+      <Link
+        className="board-card__title"
+        to={`/app/workspaces/${workspaceId}/projects/${projectId}/issues/${issue.id}`}
+      >
+        <span className="issue-key">{issue.displayKey}</span> {issue.title}
       </Link>
-      <p>
-        {issue.type} — {issue.priority} — {issue.assignee ? issue.assignee.name : 'Unassigned'}
-        {issue.dueDate ? ` — due ${new Date(issue.dueDate).toLocaleDateString()}` : ''}
+
+      <p className="board-card__meta">
+        <span className="badge">{TYPE_LABELS[issue.type]}</span>
+        <PriorityBadge priority={issue.priority} />
+        <span>{issue.assignee ? issue.assignee.name : 'Unassigned'}</span>
+        {issue.dueDate ? <span>Due {new Date(issue.dueDate).toLocaleDateString()}</span> : null}
       </p>
 
-      {issue.permissions.canMove && (
-        <>
+      {issue.permissions.canMove ? (
+        <div className="board-card__controls">
           {/* The handle carries the drag listeners, so keyboard users can pick the
-              card up with the same control a mouse uses. */}
-          <button type="button" {...attributes} {...listeners} aria-label={`Drag ${issue.displayKey}`}>
+              card up with the same control a mouse uses — and a click on the
+              title stays a plain link instead of starting a drag. */}
+          <button
+            type="button"
+            className="board-card__handle"
+            {...attributes}
+            {...listeners}
+            aria-label={`Drag ${issue.displayKey}`}
+          >
             Drag
           </button>
 
           {/* Dragging is never the only way to move a card. */}
-          <label htmlFor={`move-${issue.id}`}>Move {issue.displayKey} to</label>
+          <label className="visually-hidden" htmlFor={`move-${issue.id}`}>
+            Move {issue.displayKey} to
+          </label>
           <select
             id={`move-${issue.id}`}
+            className="board-card__move"
             value={columnStatus}
             onChange={(event) => onMoveToStatus(issue, event.target.value as IssueStatus)}
           >
@@ -110,7 +128,9 @@ function BoardCard({ issue, workspaceId, projectId, columnStatus, onMoveToStatus
               </option>
             ))}
           </select>
-        </>
+        </div>
+      ) : (
+        <p className="faint">Only an owner, an admin, the reporter or the assignee can move this.</p>
       )}
     </li>
   );
@@ -124,18 +144,23 @@ function Column({ column, ...cardProps }: ColumnProps) {
   const { setNodeRef } = useDroppable({ id: `${COLUMN_PREFIX}${column.status}` });
 
   return (
-    <section aria-labelledby={`column-heading-${column.status}`} ref={setNodeRef}>
-      <h2 id={`column-heading-${column.status}`}>
-        {STATUS_LABELS[column.status]} ({column.issues.length})
+    <section
+      className="board__column"
+      aria-labelledby={`column-heading-${column.status}`}
+      ref={setNodeRef}
+    >
+      <h2 className="board__column-heading" id={`column-heading-${column.status}`}>
+        {STATUS_LABELS[column.status]}
+        <span className="board__count">{column.issues.length}</span>
       </h2>
 
-      {column.issues.length === 0 && <p>No issue in this column.</p>}
+      {column.issues.length === 0 && <p className="faint">No issue in this column.</p>}
 
       <SortableContext
         items={column.issues.map((issue) => issue.id)}
         strategy={verticalListSortingStrategy}
       >
-        <ul>
+        <ul className="board__cards">
           {column.issues.map((issue) => (
             <BoardCard key={issue.id} issue={issue} columnStatus={column.status} {...cardProps} />
           ))}
@@ -332,7 +357,11 @@ export default function BoardPage() {
         description="Drag a card, or use the labelled move control on the card itself."
       />
 
-      {moveError && <p role="alert">{moveError}</p>}
+      {moveError && (
+        <p className="form-error" role="alert">
+          {moveError}
+        </p>
+      )}
 
       <DndContext sensors={sensors} collisionDetection={closestCorners} onDragEnd={handleDragEnd}>
         {/* The five columns scroll sideways on a narrow screen instead of being

@@ -13,18 +13,20 @@ export default function NotFoundPage() {
   const { isAuthenticated } = useAuth();
 
   return (
-    <section>
-      <h1>Page not found</h1>
-      <p>
-        This address does not exist, or the item behind it is no longer available.
-      </p>
-      <p>
+    <section className="state state--empty">
+      <h1 className="state__title">Page not found</h1>
+      <p>This address does not exist, or the item behind it is no longer available.</p>
+      <div className="state__actions">
         {isAuthenticated ? (
-          <Link to="/app/workspaces">Back to your workspaces</Link>
+          <Link className="btn-link" to="/app/workspaces">
+            Back to your workspaces
+          </Link>
         ) : (
-          <Link to="/">Back to the home page</Link>
+          <Link className="btn-link" to="/">
+            Back to the home page
+          </Link>
         )}
-      </p>
+      </div>
     </section>
   );
 }

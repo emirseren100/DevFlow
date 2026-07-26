@@ -395,7 +395,7 @@ describe('workspace dashboard', () => {
 
     expect(await screen.findByRole('link', { name: 'Create a project' })).toBeInTheDocument();
     expect(
-      screen.getByRole('link', { name: 'Choose a project to create an issue' }),
+      screen.getByRole('link', { name: 'Open a project' }),
     ).toBeInTheDocument();
   });
 
@@ -479,7 +479,7 @@ describe('mutation invalidation', () => {
     await userEvent.type(await screen.findByLabelText('Member email'), OTHER.email);
     await userEvent.click(screen.getByRole('button', { name: 'Add member' }));
 
-    expect(await screen.findByText(/Kerem Demir \(kerem@devflow\.local\)/)).toBeInTheDocument();
+    expect(await screen.findByText('kerem@devflow.local')).toBeInTheDocument();
 
     const memberCalls = fetchMock.mock.calls.filter(
       ([input, init]) =>
