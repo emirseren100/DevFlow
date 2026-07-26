@@ -4,8 +4,12 @@ import RequireAuth, { RedirectIfAuthenticated } from '../auth/RequireAuth';
 import RootLayout from '../layouts/RootLayout';
 import AppPage from '../pages/AppPage';
 import HomePage from '../pages/HomePage';
+import IssueCreatePage from '../pages/IssueCreatePage';
+import IssueDetailPage from '../pages/IssueDetailPage';
 import LoginPage from '../pages/LoginPage';
 import NotFoundPage from '../pages/NotFoundPage';
+import ProjectDetailPage from '../pages/ProjectDetailPage';
+import ProjectListPage from '../pages/ProjectListPage';
 import RegisterPage from '../pages/RegisterPage';
 import WorkspaceDetailPage from '../pages/WorkspaceDetailPage';
 import WorkspaceListPage from '../pages/WorkspaceListPage';
@@ -29,6 +33,20 @@ export default function AppRoutes() {
             <Route index element={<Navigate to="/app/workspaces" replace />} />
             <Route path="workspaces" element={<WorkspaceListPage />} />
             <Route path="workspaces/:workspaceId" element={<WorkspaceDetailPage />} />
+            <Route path="workspaces/:workspaceId/projects" element={<ProjectListPage />} />
+            <Route
+              path="workspaces/:workspaceId/projects/:projectId"
+              element={<ProjectDetailPage />}
+            />
+            {/* "new" comes before ":issueId" so it is never read as an id. */}
+            <Route
+              path="workspaces/:workspaceId/projects/:projectId/issues/new"
+              element={<IssueCreatePage />}
+            />
+            <Route
+              path="workspaces/:workspaceId/projects/:projectId/issues/:issueId"
+              element={<IssueDetailPage />}
+            />
           </Route>
         </Route>
 

@@ -145,15 +145,18 @@ model WorkspaceMember {
 }
 
 model Project {
-  id          String        @id @default(cuid())
-  workspaceId String
-  createdById String
-  name        String
-  key         String
-  description String?
-  status      ProjectStatus @default(ACTIVE)
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
+  id              String        @id @default(cuid())
+  workspaceId     String
+  createdById     String
+  name            String
+  key             String
+  description     String?
+  status          ProjectStatus @default(ACTIVE)
+  /// Next free human-readable issue number. Handed out and incremented inside
+  /// one transaction, so two simultaneous requests can never take the same one.
+  nextIssueNumber Int           @default(1)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
 
   workspace  Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   createdBy  User          @relation("ProjectCreator", fields: [createdById], references: [id], onDelete: Restrict)
@@ -189,6 +192,9 @@ model Sprint {
 model Issue {
   id          String        @id @default(cuid())
   projectId   String
+  /// Per-project counter shown as PROJECT_KEY-number (for example "API-14").
+  /// The display key itself is derived, never stored twice.
+  number      Int
   sprintId    String?
   reporterId  String
   assigneeId  String?
@@ -211,6 +217,9 @@ model Issue {
   comments   Comment[]
   activities ActivityLog[]
 
+  // The database, not the application, is what guarantees that a project never
+  // has two issues with the same number.
+  @@unique([projectId, number])
   @@index([projectId, status, position])
   @@index([assigneeId])
   @@index([sprintId])

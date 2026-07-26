@@ -80,4 +80,49 @@ export class ApiError extends Error {
       'You cannot remove your own membership through member management.',
     );
   }
+
+  /** Also used when a project exists but belongs to another workspace. */
+  static projectNotFound(): ApiError {
+    return new ApiError(404, 'PROJECT_NOT_FOUND', 'Project not found in this workspace.');
+  }
+
+  static projectKeyInUse(): ApiError {
+    return new ApiError(409, 'PROJECT_KEY_IN_USE', 'This project key is already used here.');
+  }
+
+  static sprintNotFound(): ApiError {
+    return new ApiError(404, 'SPRINT_NOT_FOUND', 'Sprint not found in this project.');
+  }
+
+  static sprintHasIssues(): ApiError {
+    return new ApiError(
+      409,
+      'SPRINT_HAS_ISSUES',
+      'This sprint still has issues. Move them out before deleting it.',
+    );
+  }
+
+  static issueNotFound(): ApiError {
+    return new ApiError(404, 'ISSUE_NOT_FOUND', 'Issue not found in this project.');
+  }
+
+  static invalidAssignee(): ApiError {
+    return new ApiError(400, 'INVALID_ASSIGNEE', 'The assignee must be a workspace member.');
+  }
+
+  static invalidSprint(): ApiError {
+    return new ApiError(400, 'INVALID_SPRINT', 'The sprint must belong to the same project.');
+  }
+
+  static invalidDateRange(): ApiError {
+    return new ApiError(400, 'INVALID_DATE_RANGE', 'The end date cannot be before the start date.');
+  }
+
+  static invalidFilter(message = 'This filter value is not supported.'): ApiError {
+    return new ApiError(400, 'INVALID_FILTER', message);
+  }
+
+  static invalidSort(message = 'This sort field is not supported.'): ApiError {
+    return new ApiError(400, 'INVALID_SORT', message);
+  }
 }

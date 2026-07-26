@@ -15,6 +15,10 @@ export const config = {
   // No default: a wrong database URL should fail loudly, not silently connect
   // somewhere unexpected. Only database code reads this value.
   databaseUrl: process.env.DATABASE_URL ?? '',
+  // How many PostgreSQL connections the pool may open at once. The local
+  // disposable `prisma dev` server drops connections past a handful, which
+  // corrupts requests that run in parallel, so it is configurable per machine.
+  databasePoolMax: Number(process.env.DATABASE_POOL_MAX ?? 10),
   // The session cookie carries the raw opaque token; only its SHA-256 hash is
   // stored. The same lifetime is used for the cookie and for the Session row.
   sessionCookieName: process.env.SESSION_COOKIE_NAME ?? 'devflow_session',

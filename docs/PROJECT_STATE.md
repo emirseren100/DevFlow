@@ -7,8 +7,8 @@
 
 ## Current Phase
 
-**Phase 4 — Workspaces and Memberships — COMPLETED.**
-Phase 5 (Projects and issues) has not started.
+**Phase 5 — Projects, Sprints and Issues — COMPLETED.**
+Phase 6 (comments, activity feed and Kanban) has not started.
 
 ## Completed Work
 
@@ -22,113 +22,144 @@ Phase 5 (Projects and issues) has not started.
   dedicated test database and auth integration tests.
 - Phase 4: workspace CRUD, membership management and role-based authorization,
   client workspace pages, workspace integration and component tests.
+- Phase 5: project, sprint and issue API with project-scoped issue numbers,
+  client project and issue pages, Phase 5 integration and component tests.
 
 ## Current Architecture
 
-Phase 1-3 layout unchanged. Added:
+Phase 1-4 layout unchanged. Added:
 
 ```
-server/src/modules/workspaces/  workspace.routes | schemas | service |
-                                authorization | types
-server/src/lib/parseBody.ts     shared Zod -> VALIDATION_ERROR helper
-server/src/lib/pathParam.ts     single-value route parameter reader
-client/src/lib/workspaceApi.ts  typed workspace calls + permission helpers
-client/src/pages/WorkspaceListPage.tsx | WorkspaceDetailPage.tsx
+server/src/modules/projects/  project.routes | schemas | service |
+                              authorization | types
+server/src/modules/sprints/   sprint.routes | schemas | service
+server/src/modules/issues/    issue.routes | schemas | service |
+                              authorization | types
+server/src/lib/parseQuery.ts  query string -> INVALID_SORT / INVALID_FILTER
+client/src/lib/projectApi.ts  typed project, sprint and issue calls
+client/src/pages/ProjectListPage.tsx | ProjectDetailPage.tsx |
+                  IssueCreatePage.tsx | IssueDetailPage.tsx
 ```
 
-No schema change and no new migration were needed: the Phase 2 `Workspace`,
-`WorkspaceMember`, `WorkspaceRole` and `ActivityLog` models already fit.
+**Migration** `20260726020000_add_project_issue_numbering`: adds
+`Project.nextIssueNumber` (default 1) and `Issue.number` with a composite unique
+index on `(projectId, number)`. Existing rows were numbered per project by the
+migration itself, and each project counter was moved past its highest number, so
+no development data was reset.
 
-**Workspace endpoints** (all require a session):
-`GET /api/workspaces`, `POST /api/workspaces`,
-`GET|PATCH|DELETE /api/workspaces/:workspaceId`.
+**Project endpoints:** `GET|POST /api/workspaces/:workspaceId/projects`,
+`GET|PATCH|DELETE /api/workspaces/:workspaceId/projects/:projectId`.
 
-**Membership endpoints:** `GET|POST /api/workspaces/:workspaceId/members`,
-`PATCH|DELETE /api/workspaces/:workspaceId/members/:memberId`.
+**Sprint endpoints:** `GET|POST .../projects/:projectId/sprints`,
+`PATCH|DELETE .../projects/:projectId/sprints/:sprintId`.
 
-**Authorization matrix**
+**Issue endpoints:** `GET|POST .../projects/:projectId/issues`,
+`GET|PATCH|DELETE .../projects/:projectId/issues/:issueId`.
+
+**Authorization matrix (Phase 5)**
 
 | Action | OWNER | ADMIN | MEMBER |
 |---|---|---|---|
-| View workspace and members | yes | yes | yes |
-| Rename workspace | yes | yes | no |
-| Delete workspace | yes | no | no |
-| Add MEMBER / add ADMIN | yes / yes | yes / no | no |
-| Change roles | yes | no | no |
-| Remove MEMBER / remove ADMIN | yes / yes | yes / no | no |
-| Change or remove the OWNER membership | no | no | no |
+| View projects, sprints, issues | yes | yes | yes |
+| Create / update / archive / delete a project | yes | yes | no |
+| Create / update / delete a sprint | yes | yes | no |
+| Create an issue | yes | yes | yes |
+| Update any issue | yes | yes | no |
+| Update an issue they report or are assigned to | yes | yes | yes |
+| Delete an issue | yes | yes | no |
 
-`requireWorkspaceMember` loads the workspace and the caller's membership in one
-query (404 for a missing workspace, 403 for an outsider) and puts the real
-database role on `req.workspace`; `requireWorkspaceAdmin` and
-`requireWorkspaceOwner` narrow it. A role sent by the client is never read.
+`requireWorkspaceMember` (Phase 4) still resolves the real role, then
+`requireProject` loads the project **filtered by the workspace id from the URL**,
+so a project id from another workspace gives `404 PROJECT_NOT_FOUND`. Sprints and
+issues are always looked up with their `projectId` in the filter as well.
 
-Workspace creation runs one transaction: workspace + OWNER membership +
-`WORKSPACE_CREATED` activity. Adding a member writes the membership and a
-`MEMBER_ADDED` activity. Slugs are generated from the name, made unique with a
-numeric suffix, and never change on rename.
+**Issue numbering.** Each project owns `nextIssueNumber`. Creating an issue runs
+one transaction: increment the counter, take the value it just passed, insert the
+issue. The row lock serialises concurrent requests, and the unique index on
+`(projectId, number)` is the backstop. The display key `API-14` is derived from
+the project key and the number, never stored twice.
 
-New error codes: `FORBIDDEN`, `WORKSPACE_NOT_FOUND`, `MEMBER_NOT_FOUND`,
-`USER_NOT_FOUND`, `ALREADY_MEMBER`, `INVALID_ROLE`,
-`OWNER_MEMBERSHIP_IMMUTABLE`, `SELF_REMOVAL_NOT_ALLOWED`.
+**Relation validation.** An assignee must have a `WorkspaceMember` row in the
+issue's workspace (`400 INVALID_ASSIGNEE`); a sprint must belong to the same
+project (`400 INVALID_SPRINT`). `reporterId`, `number`, `projectId` and
+`workspaceId` are never read from the request body.
 
-**Client routes:** `/app` is a layout that redirects to `/app/workspaces`
-(list, create, loading/empty/error states); `/app/workspaces/:workspaceId`
-shows details, members, and only the controls the current role may use.
+New error codes: `PROJECT_NOT_FOUND`, `PROJECT_KEY_IN_USE`, `SPRINT_NOT_FOUND`,
+`SPRINT_HAS_ISSUES`, `ISSUE_NOT_FOUND`, `INVALID_ASSIGNEE`, `INVALID_SPRINT`,
+`INVALID_DATE_RANGE`, `INVALID_FILTER`, `INVALID_SORT`.
+
+**Client routes:** `/app/workspaces/:workspaceId/projects`,
+`.../projects/:projectId`, `.../projects/:projectId/issues/new`,
+`.../projects/:projectId/issues/:issueId`. The issue filters live in the URL
+query string, so a reload or a shared link restores the same view. Controls the
+current role may not use are hidden; the server checks every request again.
 
 ## Working Commands (from the repository root)
 
 | Command | Result |
 |---|---|
 | `npm run dev` | client 5174 + server 4000 |
-| `npm run typecheck` / `npm test` / `npm run build` | pass (65 tests) |
+| `npm run typecheck` / `npm test` / `npm run build` | pass (145 tests) |
 | `npm run db:validate` / `db:format` / `db:generate` | schema tooling, no database needed |
 | `npm run db:migrate` | `prisma migrate dev` (needs a real PostgreSQL) |
 | `npm run db:status` / `db:seed` / `db:check` | migration status, seed, read-only check |
 | `npm run db:test:prepare` | apply migrations to the test database |
-| `npm run test:auth` / `npm run test:workspaces` | server authentication / workspace tests only |
+| `npm run test:auth` / `test:workspaces` / `test:projects` / `test:sprints` / `test:issues` | one server suite only |
 | `npm run db:studio` | Prisma Studio (manual use only) |
 
-## Verification Status (Phase 4)
+## Verification Status (Phase 5)
 
 | Check | Status |
 |---|---|
 | `prisma format` / `prisma validate` | Passed |
-| Migrations | Unchanged — no schema change was needed |
-| `npm run db:test:prepare` | Passed (no pending migrations) |
-| `npm run test:workspaces` | Passed (30 tests) |
-| Client workspace tests | Passed (11 tests) |
-| `npm run test:auth` | Passed (12 tests) |
-| `npm test` | Passed — client 20, server 45 |
+| Migration `add_project_issue_numbering` applied (dev + test) | Passed |
+| `prisma generate` | Passed |
+| `npm run db:seed` (re-run, idempotent) | Passed |
+| `npm run test:projects` | Passed (22 tests) |
+| `npm run test:sprints` | Passed (13 tests) |
+| `npm run test:issues` | Passed (26 tests) |
+| Client Phase 5 tests | Passed (19 tests) |
+| `npm run test:auth` / `npm run test:workspaces` | Passed (12 / 30 tests) |
+| `npm test` | Passed — client 39, server 106 |
 | `npm run typecheck` | Passed |
 | `npm run build` | Passed |
 | Manual: frontend 5174, backend 4000, `GET /api/health` public | 200 / 200 / 200 |
-| Manual: `GET /api/workspaces` without a cookie | 401 |
-| Manual: seeded OWNER sees only their own workspace | Passed |
-| Manual: seeded MEMBER `PATCH /api/workspaces/:id` by hand | 403 |
+| Manual: project list without a cookie | 401 |
+| Manual: project reached through a foreign workspace id | 404 |
+| Manual: seeded MEMBER creating a project | 403 |
+| Manual: issue keys `API-1`, `API-2`, `WEB-1` | Correct |
 
 ## Known Limitations
 
 - Test database: still the isolated PostgreSQL **schema** `devflow_test` on the
   disposable `prisma dev` server described in Phase 3 (no local PostgreSQL and
   no Docker on this machine). Its URLs in `server/.env` and `server/.env.test`
-  change whenever that server is recreated.
+  change whenever that server is recreated, and the server must be started with
+  `npx prisma dev --name devflow` before any database command.
+- **That local server drops connections past a couple**, which corrupted
+  requests running in parallel (`08P01`, spurious `403`). `DATABASE_POOL_MAX`
+  (new, read in `config.ts`) keeps the pool at `2` locally; a real PostgreSQL
+  server can use `10`.
 - `prisma migrate dev` still fails against that server (`P1017`); migrations are
-  produced with `prisma migrate diff` and applied with `prisma migrate deploy`.
-- Workspaces: no ownership transfer, no self-service "leave workspace", no email
-  invitations — only already registered users can be added, and an unknown email
-  returns `404 USER_NOT_FOUND`. Renaming keeps the original slug.
-- Activity rows are written (`WORKSPACE_CREATED`, `MEMBER_ADDED`) but no
-  activity feed endpoint exists yet (Phase 6).
-- Client data fetching is plain `useEffect` + `useState`; no React Query, no
-  cache. UI styling is minimal on purpose (Phase 9).
+  written by hand and applied with `prisma migrate deploy`.
+- Projects: keys cannot be changed after creation, and deletion is permanent —
+  no soft delete and no undo. Deleting a project removes its sprints, issues and
+  their comments; users, memberships and the workspace are untouched.
+- Sprints: no capacity, no automatic scheduling, and a sprint holding issues
+  cannot be deleted (`409 SPRINT_HAS_ISSUES`).
+- Issues: no comments, labels, attachments, subtasks, watchers or time tracking.
+  `position` is set to the issue number and is not yet used for ordering.
+- Activity rows are written (`PROJECT_CREATED`, `ISSUE_CREATED`,
+  `ISSUE_UPDATED`, `ISSUE_STATUS_CHANGED`, `ISSUE_ASSIGNED`) but no activity
+  feed endpoint or UI exists yet (Phase 6).
+- Client data fetching is still plain `useEffect` + `useState`; no React Query,
+  no cache. UI styling is minimal on purpose (Phase 9).
 - Still open from Phase 3: login rate limiting, email verification, password
   reset, MFA, session management and a CSRF strategy for cross-site deployment.
-- No project, issue, sprint, comment or Kanban endpoints. No Docker, no CI, no
-  lint tooling (Phase 8).
+- No Kanban board, no Docker, no CI, no lint tooling (Phases 6-8).
 
 ## Next Task
 
-**Phase 5 — Projects and Issues.** Project CRUD scoped to a workspace, issue
-CRUD scoped to a project, Zod validation on every endpoint, and authorization
-that walks up to the owning workspace and reuses the Phase 4 role helpers.
+**Phase 6 — Comments, activity and Kanban.** Comment CRUD scoped to an issue, an
+activity feed endpoint that reads the rows Phase 5 already writes, and a Kanban
+board with drag-and-drop that finally uses `Issue.position`.

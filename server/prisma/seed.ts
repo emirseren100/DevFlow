@@ -79,6 +79,7 @@ const sprints = [
 const issues = [
   {
     id: 'seed_issue_01',
+    number: 1,
     projectId: 'seed_prj_api',
     sprintId: 'seed_sprint_api_1',
     reporterId: 'seed_user_ada',
@@ -92,6 +93,7 @@ const issues = [
   },
   {
     id: 'seed_issue_02',
+    number: 2,
     projectId: 'seed_prj_api',
     sprintId: 'seed_sprint_api_1',
     reporterId: 'seed_user_ada',
@@ -105,6 +107,7 @@ const issues = [
   },
   {
     id: 'seed_issue_03',
+    number: 3,
     projectId: 'seed_prj_api',
     sprintId: 'seed_sprint_api_1',
     reporterId: 'seed_user_boris',
@@ -118,6 +121,7 @@ const issues = [
   },
   {
     id: 'seed_issue_04',
+    number: 4,
     projectId: 'seed_prj_api',
     sprintId: 'seed_sprint_api_2',
     reporterId: 'seed_user_ada',
@@ -131,6 +135,7 @@ const issues = [
   },
   {
     id: 'seed_issue_05',
+    number: 5,
     projectId: 'seed_prj_api',
     sprintId: null,
     reporterId: 'seed_user_ceyda',
@@ -144,6 +149,7 @@ const issues = [
   },
   {
     id: 'seed_issue_06',
+    number: 6,
     projectId: 'seed_prj_api',
     sprintId: null,
     reporterId: 'seed_user_ada',
@@ -157,6 +163,7 @@ const issues = [
   },
   {
     id: 'seed_issue_07',
+    number: 1,
     projectId: 'seed_prj_web',
     sprintId: 'seed_sprint_web_1',
     reporterId: 'seed_user_boris',
@@ -170,6 +177,7 @@ const issues = [
   },
   {
     id: 'seed_issue_08',
+    number: 2,
     projectId: 'seed_prj_web',
     sprintId: 'seed_sprint_web_1',
     reporterId: 'seed_user_ceyda',
@@ -183,6 +191,7 @@ const issues = [
   },
   {
     id: 'seed_issue_09',
+    number: 3,
     projectId: 'seed_prj_web',
     sprintId: 'seed_sprint_web_1',
     reporterId: 'seed_user_ada',
@@ -196,6 +205,7 @@ const issues = [
   },
   {
     id: 'seed_issue_10',
+    number: 4,
     projectId: 'seed_prj_web',
     sprintId: null,
     reporterId: 'seed_user_boris',
@@ -337,6 +347,7 @@ async function main(): Promise<void> {
     await prisma.issue.upsert({
       where: { id: issue.id },
       update: {
+        number: issue.number,
         sprintId: issue.sprintId,
         assigneeId: issue.assigneeId,
         title: issue.title,
@@ -348,6 +359,26 @@ async function main(): Promise<void> {
       },
       create: { ...issue },
     });
+  }
+
+  // The counter is only ever moved forward, so a re-run cannot push it back
+  // below issues that were created through the API in the meantime.
+  for (const project of projects) {
+    const highest = await prisma.issue.aggregate({
+      where: { projectId: project.id },
+      _max: { number: true },
+    });
+
+    const stored = await prisma.project.findUniqueOrThrow({
+      where: { id: project.id },
+      select: { nextIssueNumber: true },
+    });
+
+    const nextIssueNumber = Math.max(stored.nextIssueNumber, (highest._max.number ?? 0) + 1);
+
+    if (nextIssueNumber !== stored.nextIssueNumber) {
+      await prisma.project.update({ where: { id: project.id }, data: { nextIssueNumber } });
+    }
   }
 
   for (const comment of comments) {

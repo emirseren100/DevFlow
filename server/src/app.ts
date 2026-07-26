@@ -6,6 +6,9 @@ import { config } from './config.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { notFound } from './middleware/notFound.js';
 import { authRouter } from './modules/auth/auth.routes.js';
+import { issueRouter } from './modules/issues/issue.routes.js';
+import { projectRouter } from './modules/projects/project.routes.js';
+import { sprintRouter } from './modules/sprints/sprint.routes.js';
 import { workspaceRouter } from './modules/workspaces/workspace.routes.js';
 import { healthRouter } from './routes/health.js';
 
@@ -26,6 +29,9 @@ export function createApp() {
   app.use('/api', healthRouter);
   app.use('/api', authRouter);
   app.use('/api', workspaceRouter);
+  app.use('/api', projectRouter);
+  app.use('/api', sprintRouter);
+  app.use('/api', issueRouter);
 
   app.use(notFound);
   app.use(errorHandler);

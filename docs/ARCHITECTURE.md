@@ -324,6 +324,53 @@ Error:
 - API integration tests reset the test database between runs.
 - The full suite plus a production build runs at the end of each phase and in CI.
 
+## 9.1 Projects, Sprints and Issues (Phase 5)
+
+**Ownership chain.** A workspace has many projects; a project has many sprints
+and many issues; an issue may point at one sprint of *its own* project. Nothing
+in this chain is optional except the sprint link:
+
+```
+Workspace 1─n Project 1─n Sprint
+                 │           │
+                 └────n Issue ┘ (sprintId is nullable)
+```
+
+**Reporter and assignee.** An issue always has a reporter — the user who created
+it, taken from the session and never from the request body — and optionally one
+assignee, who must be a current member of the owning workspace. The two
+relations point at the same `User` model but answer different questions: who
+asked for the work, and who is doing it.
+
+**Project-scoped issue numbers.** Issues are shown as `KEY-number` (`API-14`).
+The key lives on the project and the number on the issue; the readable key is
+built when a response is assembled and is never stored a second time, so a
+renamed project cannot leave stale keys behind. Each project owns a
+`nextIssueNumber` counter, which is why two projects can both have issue 1.
+
+**Transactional allocation.** Creating an issue runs one transaction that
+increments `project.nextIssueNumber`, reads the value it just took, and inserts
+the issue with that number. The increment locks the project row, so a second
+request that arrives at the same moment waits and receives the following number.
+Counting existing issues (`count + 1`) would let two requests read the same
+total and write the same number. A unique index on `(projectId, number)` is the
+final guarantee, in case any future code path forgets the transaction.
+
+**Relation validation happens on the server.** Two middlewares run before every
+project route: workspace membership, then `requireProject`, which loads the
+project *filtered by the workspace id from the URL*. A project id from another
+workspace therefore returns `404 PROJECT_NOT_FOUND` rather than data. The same
+pattern repeats one level down: a sprint or an issue is always looked up with
+its `projectId` in the filter, and a new assignee or sprint is verified against
+the database before it is written.
+
+**Issue list flow.** The query string is parsed with Zod (unknown sort fields
+become `INVALID_SORT`, other bad values `INVALID_FILTER`), turned into one
+Prisma `where` object, and answered with two queries: a `count` for the
+pagination metadata and one `findMany` that joins the reporter, assignee and
+sprint. Paging is done in the database with `skip` and `take`, capped at 100
+rows, so the response size never depends on how large the project has grown.
+
 ## 10. Docker Compose
 
 - Local development starts with Compose providing **PostgreSQL** (and optionally

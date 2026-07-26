@@ -414,3 +414,105 @@ membership impossible even under concurrent requests. The UI hides controls a
 role cannot use, but that is only convenience; the same rules are re-checked
 server-side, which is what the integration tests verify by sending forbidden
 requests directly.
+
+## Phase 5 — Projects, Sprints and Issues
+
+**Phase:** 5 — Projects, Sprints and Issues (2026-07-26)
+
+**Concepts learned:**
+- Nested REST resources — the URL spells out the ownership chain:
+  `/workspaces/:workspaceId/projects/:projectId/issues/:issueId`. Each segment is
+  a resource that owns the next one, so the address itself says where a record
+  lives instead of hiding that in a query parameter.
+- Route ownership validation — a nested URL is a claim, not a proof. A project id
+  is a valid key on its own, so swapping the workspace id in the address bar
+  would otherwise reach another team's project. Every lookup therefore includes
+  the parent id in the `where` filter (`{ id: projectId, workspaceId }`), and a
+  mismatch answers 404 rather than data.
+- Server-side filtering — `search`, `status`, `type`, `priority`, `assigneeId`,
+  `sprintId` and `unassigned` are parsed with Zod and turned into one Prisma
+  `where` object. Filtering in the database means the response only carries rows
+  the user asked for; filtering in the browser would still ship everything.
+- Pagination — `page` and `limit` become `skip` and `take`, with the limit capped
+  at 100. The response carries `total`, `totalPages` and the two `has…Page`
+  flags, so the UI can draw pager controls without guessing.
+- Transactions — creating an issue writes two things that must agree: the new
+  issue and the project's counter. `prisma.$transaction` makes them one
+  all-or-nothing unit, so a crash can never leave a counter that has moved past
+  an issue that was never created.
+- Race conditions — two requests arriving at the same millisecond can both read
+  "there are 7 issues" and both write number 8. Incrementing the counter *inside*
+  the transaction makes PostgreSQL lock that project row, so the second request
+  waits and reads 8 instead of 7. `count + 1` computed before the transaction has
+  no such protection.
+- Project-scoped sequence numbers — the counter lives on the project, not on the
+  whole database, which is why `API-1` and `WEB-1` both exist. A unique index on
+  `(projectId, number)` lets the database enforce the rule even if future code
+  forgets the transaction.
+- Derived versus stored values — the display key `API-14` is built from the
+  project key and the issue number when a response is assembled. Storing it as a
+  third column would create a copy that can drift out of sync.
+- Relational validation — an assignee must have a membership row in the issue's
+  workspace and a sprint must belong to the same project. Both are checked
+  against the database before the write, because a request body can name any id.
+- Reporter versus assignee — two relations to the same `User` model answering
+  different questions: who asked for the work (always the signed-in user, never a
+  body field) and who is doing it (optional, changeable, and a permission in
+  itself, since the assignee may edit the issue).
+- Immutable identifiers — the project key is fixed after creation, because
+  `API-14` is written into chats, commits and bookmarks that the application
+  cannot rewrite. The name and description stay editable.
+- Authorization based on resource relationships — a MEMBER may edit an issue when
+  they are its reporter or its current assignee. The permission therefore depends
+  on the row, not only on the role, so the issue is loaded first and the rule is
+  applied to the real `reporterId` and `assigneeId`.
+
+**Files understood:**
+- `server/src/modules/projects/project.authorization.ts` — `requireProject`, the
+  one middleware that proves a project belongs to the workspace in the URL.
+- `server/src/modules/issues/issue.service.ts` — the filter/pagination query and
+  the transaction that allocates an issue number.
+- `server/src/modules/issues/issue.authorization.ts` — role-plus-relationship
+  rules and the `permissions` object the client renders from.
+- `server/src/lib/parseQuery.ts` — query strings fail as `INVALID_SORT` or
+  `INVALID_FILTER` instead of a form-shaped `VALIDATION_ERROR`.
+- `client/src/pages/ProjectDetailPage.tsx` — filters kept in the URL query
+  string, which is what makes a filtered view shareable and reloadable.
+
+**Problems solved:**
+- Adding `Issue.number` to a table that already had rows: the migration creates
+  the column with a temporary default, numbers the existing issues per project
+  with `ROW_NUMBER()`, moves each project counter past its highest number, then
+  drops the default and adds the unique index. No development data was reset.
+- Two Prisma models can be counted in one query: issue totals per project come
+  from a single `groupBy`, so a list of ten projects is two queries, not eleven.
+- Sprint ordering — PostgreSQL sorts an enum in declaration order (PLANNED,
+  ACTIVE, COMPLETED), which is not board order. The short sprint list is sorted
+  in TypeScript with an explicit rank instead.
+- A no-op update used to write an activity row anyway. The service compares each
+  incoming field with the stored value first, so saving an unchanged form writes
+  nothing.
+- The local disposable `prisma dev` server drops connections past a couple, which
+  produced protocol errors and spurious 403s under parallel requests. Plain `pg`
+  reproduced it without Prisma, so the fix was a `DATABASE_POOL_MAX` setting
+  rather than a change to the application logic.
+- URL-driven filters can loop forever if the effect that reads the URL also
+  writes it. Here the URL is written only by user actions and the effect only
+  reads it, so there is no cycle.
+
+**Interview explanation:**
+Phase 5 added the core of the product: projects inside a workspace, sprints and
+issues inside a project. The URLs are nested to match that ownership, but a
+nested URL is only a claim — every lookup includes the parent id in the query, so
+changing a workspace id in the address bar returns 404 instead of another team's
+project. Issues get human-readable keys such as API-14: the key belongs to the
+project, the number comes from a counter on the project row, and the two are
+joined only when a response is built. The number is allocated inside the same
+transaction that creates the issue, which makes PostgreSQL lock the project row
+and serialise concurrent requests; a unique constraint on project plus number is
+the backstop. Counting existing issues instead would be a classic race
+condition. Permissions come in two flavours here: role-based for projects and
+sprints, and relationship-based for issues, where a plain member may edit the
+issue they reported or are assigned to. The issue list is filtered, sorted and
+paginated in the database, capped at 100 rows per request, and the client keeps
+those filters in the URL query string so a view can be reloaded or shared.

@@ -14,7 +14,10 @@ import { PrismaClient } from '../generated/prisma/client.js';
 const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
 
 function createPrismaClient(): PrismaClient {
-  const adapter = new PrismaPg({ connectionString: config.databaseUrl });
+  const adapter = new PrismaPg({
+    connectionString: config.databaseUrl,
+    max: config.databasePoolMax,
+  });
 
   return new PrismaClient({
     adapter,

@@ -87,7 +87,7 @@ Full phase details: [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Current Status
 
-Phase 4 — Workspaces and membership is complete. What exists today:
+Phase 5 — Projects, sprints and issues is complete. What exists today:
 
 - npm workspaces root with `client` and `server`
 - React + TypeScript client on port **5174**: working `/login` and `/register`
@@ -102,11 +102,15 @@ Phase 4 — Workspaces and membership is complete. What exists today:
   as SHA-256 hashes, HTTP-only session cookie, `requireAuth` middleware
 - Workspace and membership API with `OWNER`/`ADMIN`/`MEMBER` roles checked
   against PostgreSQL on every request
-- 65 passing tests: 20 client tests and 45 server tests (the authentication and
-  workspace integration tests need the dedicated test database)
+- Project, sprint and issue API nested under a workspace, with project-scoped
+  issue numbers (`API-1`, `API-2`, …) handed out inside a transaction
+- Client pages for the project list, project detail with issue filters and
+  pagination, issue creation and issue detail
+- 145 passing tests: 39 client tests and 106 server tests (the authentication,
+  workspace, project, sprint and issue integration tests need the dedicated
+  test database)
 
-Not built yet: project and issue APIs, comments, activity feed, Kanban, the
-final UI, Docker and CI.
+Not built yet: comments, activity feed, Kanban, the final UI, Docker and CI.
 
 Current state at any time: [docs/PROJECT_STATE.md](docs/PROJECT_STATE.md).
 
@@ -290,10 +294,114 @@ curl -i -X PATCH http://localhost:4000/api/workspaces/<id> -H "Content-Type: app
 6. Without any cookie, `curl -i http://localhost:4000/api/workspaces` returns
    `401`, while `curl -i http://localhost:4000/api/health` stays public.
 
+### Projects, sprints and issues
+
+Every endpoint below requires a valid session and a membership in the workspace
+named in the URL. The project id is always checked against that workspace, so
+changing the workspace id in the address bar returns `404 PROJECT_NOT_FOUND`
+instead of somebody else's project.
+
+**Projects**
+
+| Endpoint | Allowed | Purpose |
+|---|---|---|
+| `GET /api/workspaces/:workspaceId/projects` | member | list with `status`, `search`, `sort` (`createdAt`, `updatedAt`, `name`) and `order` |
+| `POST /api/workspaces/:workspaceId/projects` | `OWNER`, `ADMIN` | create a project; the key is uppercased |
+| `GET /api/workspaces/:workspaceId/projects/:projectId` | member | details, own role, issue counts by status, sprints, creator |
+| `PATCH /api/workspaces/:workspaceId/projects/:projectId` | `OWNER`, `ADMIN` | change `name`, `description` or `status` |
+| `DELETE /api/workspaces/:workspaceId/projects/:projectId` | `OWNER`, `ADMIN` | permanent delete, requires `{ "confirm": true }` |
+
+**Sprints** (all nested under a project)
+
+| Endpoint | Allowed | Purpose |
+|---|---|---|
+| `GET .../projects/:projectId/sprints` | member | sprints ordered `ACTIVE`, `PLANNED`, `COMPLETED`, then start date |
+| `POST .../projects/:projectId/sprints` | `OWNER`, `ADMIN` | create a sprint |
+| `PATCH .../projects/:projectId/sprints/:sprintId` | `OWNER`, `ADMIN` | change name, goal, status or dates |
+| `DELETE .../projects/:projectId/sprints/:sprintId` | `OWNER`, `ADMIN` | only when the sprint holds no issue |
+
+**Issues** (all nested under a project)
+
+| Endpoint | Allowed | Purpose |
+|---|---|---|
+| `GET .../projects/:projectId/issues` | member | filtered, paginated issue list |
+| `POST .../projects/:projectId/issues` | any member | create an issue; the reporter is always the signed-in user |
+| `GET .../projects/:projectId/issues/:issueId` | member | issue details and what the caller may do with it |
+| `PATCH .../projects/:projectId/issues/:issueId` | `OWNER`, `ADMIN`, reporter, assignee | change the editable fields |
+| `DELETE .../projects/:projectId/issues/:issueId` | `OWNER`, `ADMIN` | permanent delete |
+
+**Issue keys.** A project has a key of 2–10 uppercase letters and digits that is
+unique inside its workspace and cannot be changed after creation. Every project
+keeps its own counter, so its first issue is number 1 and the readable key is
+built as `KEY-number` (`API-1`, `WEB-14`). The number is allocated by
+incrementing the project counter inside the same transaction that creates the
+issue, and a unique index on `(projectId, number)` is the final guarantee.
+
+**Assignees and sprints.** An assignee must be a current member of the issue's
+workspace, and a sprint must belong to the same project. Both are checked in the
+database, so a hand-made request cannot assign an unrelated user
+(`400 INVALID_ASSIGNEE`) or a foreign sprint (`400 INVALID_SPRINT`).
+
+**Permission summary**
+
+| Action | `OWNER` | `ADMIN` | `MEMBER` |
+|---|---|---|---|
+| View projects, sprints and issues | yes | yes | yes |
+| Create, update, archive, delete a project | yes | yes | no |
+| Create, update, delete a sprint | yes | yes | no |
+| Create an issue | yes | yes | yes |
+| Update any issue | yes | yes | no |
+| Update an issue they report or are assigned | yes | yes | yes |
+| Delete an issue | yes | yes | no |
+
+**Issue filters and pagination.** `GET .../issues` accepts `search`, `status`,
+`type`, `priority`, `assigneeId`, `reporterId`, `sprintId`, `unassigned`,
+`page`, `limit`, `sort` (`number`, `createdAt`, `updatedAt`, `priority`,
+`dueDate`) and `order`. The defaults are page 1, 20 per page (100 maximum),
+sorted by `updatedAt` descending. `search` matches the title, the description
+and the issue number, so `API-14`, `14` and part of a title all work. The
+response carries `issues`, `pagination` and the `filters` that are actually in
+use. An unsupported sort field returns `400 INVALID_SORT`; any other bad filter
+value returns `400 INVALID_FILTER`.
+
+New error codes: `PROJECT_NOT_FOUND` (404), `PROJECT_KEY_IN_USE` (409),
+`SPRINT_NOT_FOUND` (404), `SPRINT_HAS_ISSUES` (409), `ISSUE_NOT_FOUND` (404),
+`INVALID_ASSIGNEE` (400), `INVALID_SPRINT` (400), `INVALID_DATE_RANGE` (400),
+`INVALID_FILTER` (400), `INVALID_SORT` (400).
+
+Client routes: `/app/workspaces/:workspaceId/projects` (list, filters, create
+form for `OWNER` and `ADMIN`), `.../projects/:projectId` (detail, sprints, issue
+list with URL-synchronised filters and pagination, project settings),
+`.../projects/:projectId/issues/new` and `.../projects/:projectId/issues/:issueId`
+(detail with an inline edit form when the server allows it).
+
+**Deletion is permanent.** This local MVP has no soft delete and no undo:
+deleting a project removes its sprints, its issues and their comments; deleting
+an issue removes its comments. Users, memberships and the workspace itself are
+never touched.
+
+**Manual test**
+
+1. `npm run db:seed`, then `npm run dev` and sign in as `ada@devflow.local`
+   (see the development seed login above).
+2. Open the workspace, follow **Projects**, and create a project with the key
+   `web` — it is stored as `WEB`.
+3. Create an issue in it: the detail page shows `WEB-1`. Create a second one to
+   see `WEB-2`.
+4. Filter the issue list by status; the URL gains `?status=…`, and reloading the
+   page restores the same view.
+5. Sign in as `ceyda@devflow.local` (a `MEMBER`): no create-project form, no
+   project settings, and no delete button on an issue somebody else reported.
+6. Still as that member, try the same change by hand — the server answers `403`:
+
+```bash
+curl -i -X PATCH http://localhost:4000/api/workspaces/<workspaceId>/projects/<projectId> -H "Content-Type: application/json" -b "devflow_session=<cookie>" -d "{\"name\":\"Hacked\"}"
+```
+
 ### Test database
 
-The authentication and workspace tests write and delete rows, so they use a
-**separate** database, never the development one:
+The authentication, workspace, project, sprint and issue tests write and delete
+rows, so they use a **separate** database, never the development one:
 
 ```bash
 cp server/.env.test.example server/.env.test
@@ -320,6 +428,25 @@ Or only the workspace and membership tests:
 ```bash
 npm run test:workspaces
 ```
+
+The Phase 5 suites have their own scripts as well:
+
+```bash
+npm run test:projects
+```
+
+```bash
+npm run test:sprints
+```
+
+```bash
+npm run test:issues
+```
+
+**Connection pool.** The local disposable `prisma dev` server drops connections
+past a couple, which corrupts requests that run in parallel. `DATABASE_POOL_MAX`
+in `server/.env` and `server/.env.test` keeps the pool at `2` on this machine; a
+real PostgreSQL server can use `10`.
 
 ### Known security limitations
 

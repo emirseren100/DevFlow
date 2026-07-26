@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 
 import { ApiError } from '../lib/apiClient';
 import type { AssignableRole, WorkspaceDetail, WorkspaceMember } from '../lib/workspaceApi';
@@ -140,6 +140,9 @@ export default function WorkspaceDetailPage() {
       <p>Your role: {workspace.role}</p>
       <p>
         Owner: {workspace.owner.name} ({workspace.owner.email})
+      </p>
+      <p>
+        <Link to={`/app/workspaces/${workspaceId}/projects`}>Projects</Link>
       </p>
 
       {actionError && <p role="alert">{actionError}</p>}
