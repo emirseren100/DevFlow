@@ -8,6 +8,7 @@ import { notFound } from './middleware/notFound.js';
 import { activityRouter } from './modules/activities/activity.routes.js';
 import { authRouter } from './modules/auth/auth.routes.js';
 import { commentRouter } from './modules/comments/comment.routes.js';
+import { dashboardRouter } from './modules/dashboard/dashboard.routes.js';
 import { issueRouter } from './modules/issues/issue.routes.js';
 import { kanbanRouter } from './modules/kanban/kanban.routes.js';
 import { projectRouter } from './modules/projects/project.routes.js';
@@ -38,6 +39,7 @@ export function createApp() {
   app.use('/api', commentRouter);
   app.use('/api', activityRouter);
   app.use('/api', kanbanRouter);
+  app.use('/api', dashboardRouter);
 
   app.use(notFound);
   app.use(errorHandler);

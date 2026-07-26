@@ -1,18 +1,16 @@
-import { useEffect, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useState } from 'react';
 import type { FormEvent } from 'react';
 
-import { ApiError } from '../lib/apiClient';
-import type { Comment } from '../lib/collaborationApi';
+import { errorMessage } from '../lib/apiClient';
 import {
   createComment,
   deleteComment,
   listComments,
   updateComment,
 } from '../lib/collaborationApi';
-
-function messageOf(error: unknown): string {
-  return error instanceof ApiError ? error.message : 'Something went wrong. Please try again.';
-}
+import { queryKeys } from '../lib/queryKeys';
+import { EmptyState, ErrorState, LoadingState } from './states';
 
 interface CommentSectionProps {
   workspaceId: string;
@@ -28,99 +26,98 @@ interface CommentSectionProps {
  * instead of markup. Which controls appear is decided by the server flags.
  */
 export default function CommentSection({ workspaceId, projectId, issueId }: CommentSectionProps) {
-  const [comments, setComments] = useState<Comment[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
 
   const [draft, setDraft] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [actionError, setActionError] = useState<string | null>(null);
-
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState('');
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let active = true;
+  const commentsQuery = useQuery({
+    queryKey: queryKeys.comments(workspaceId, projectId, issueId),
+    queryFn: ({ signal }) => listComments(workspaceId, projectId, issueId, signal),
+  });
 
-    setIsLoading(true);
-    setLoadError(null);
+  /**
+   * A comment shows up in three other places: the issue history, the project
+   * feed and the recent activity of the dashboard. Those are refreshed — and
+   * nothing else is.
+   */
+  function invalidateAfterComment() {
+    void queryClient.invalidateQueries({
+      queryKey: queryKeys.comments(workspaceId, projectId, issueId),
+    });
+    void queryClient.invalidateQueries({
+      queryKey: queryKeys.issueActivity(workspaceId, projectId, issueId),
+    });
+    void queryClient.invalidateQueries({
+      queryKey: queryKeys.projectActivity(workspaceId, projectId),
+    });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.workspaceDashboard(workspaceId) });
+  }
 
-    listComments(workspaceId, projectId, issueId)
-      .then((list) => {
-        if (active) setComments(list);
-      })
-      .catch((error: unknown) => {
-        if (active) setLoadError(messageOf(error));
-      })
-      .finally(() => {
-        if (active) setIsLoading(false);
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [workspaceId, projectId, issueId]);
-
-  async function handleCreate(event: FormEvent) {
-    event.preventDefault();
-    setIsSubmitting(true);
-    setActionError(null);
-
-    try {
-      const created = await createComment(workspaceId, projectId, issueId, draft);
-
-      setComments((current) => [...current, created]);
+  const createMutation = useMutation({
+    mutationFn: (body: string) => createComment(workspaceId, projectId, issueId, body),
+    onSuccess: () => {
       setDraft('');
-    } catch (error) {
-      setActionError(messageOf(error));
-    } finally {
-      setIsSubmitting(false);
-    }
-  }
+      setActionError(null);
+      invalidateAfterComment();
+    },
+    onError: (error) => setActionError(errorMessage(error)),
+  });
 
-  async function handleUpdate(event: FormEvent, commentId: string) {
-    event.preventDefault();
-    setIsSubmitting(true);
-    setActionError(null);
-
-    try {
-      const updated = await updateComment(workspaceId, projectId, issueId, commentId, editDraft);
-
-      setComments((current) =>
-        current.map((comment) => (comment.id === commentId ? updated : comment)),
-      );
+  const updateMutation = useMutation({
+    mutationFn: (input: { commentId: string; body: string }) =>
+      updateComment(workspaceId, projectId, issueId, input.commentId, input.body),
+    onSuccess: () => {
       setEditingId(null);
-    } catch (error) {
-      setActionError(messageOf(error));
-    } finally {
-      setIsSubmitting(false);
-    }
+      setActionError(null);
+      invalidateAfterComment();
+    },
+    onError: (error) => setActionError(errorMessage(error)),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (commentId: string) =>
+      deleteComment(workspaceId, projectId, issueId, commentId),
+    onSuccess: () => {
+      setConfirmingId(null);
+      setActionError(null);
+      invalidateAfterComment();
+    },
+    onError: (error) => setActionError(errorMessage(error)),
+  });
+
+  const comments = commentsQuery.data ?? [];
+  const isSubmitting =
+    createMutation.isPending || updateMutation.isPending || deleteMutation.isPending;
+
+  function handleCreate(event: FormEvent) {
+    event.preventDefault();
+    createMutation.mutate(draft);
   }
 
-  async function handleDelete(commentId: string) {
-    setIsSubmitting(true);
-    setActionError(null);
-
-    try {
-      await deleteComment(workspaceId, projectId, issueId, commentId);
-      setComments((current) => current.filter((comment) => comment.id !== commentId));
-      setConfirmingId(null);
-    } catch (error) {
-      setActionError(messageOf(error));
-    } finally {
-      setIsSubmitting(false);
-    }
+  function handleUpdate(event: FormEvent, commentId: string) {
+    event.preventDefault();
+    updateMutation.mutate({ commentId, body: editDraft });
   }
 
   return (
     <section aria-labelledby="comments-heading">
       <h2 id="comments-heading">Comments</h2>
 
-      {isLoading && <p role="status">Loading comments…</p>}
-      {loadError && <p role="alert">{loadError}</p>}
-      {!isLoading && !loadError && comments.length === 0 && (
-        <p>No comment yet. Be the first to write one.</p>
+      {commentsQuery.isPending && <LoadingState label="Loading comments…" />}
+
+      {commentsQuery.isError && (
+        <ErrorState error={commentsQuery.error} onRetry={() => void commentsQuery.refetch()} />
+      )}
+
+      {commentsQuery.isSuccess && comments.length === 0 && (
+        <EmptyState
+          title="No comment yet"
+          description="Be the first to write one with the form below."
+        />
       )}
 
       {comments.length > 0 && (
@@ -175,7 +172,7 @@ export default function CommentSection({ workspaceId, projectId, issueId }: Comm
                     <p role="alert">Deleting this comment cannot be undone.</p>
                     <button
                       type="button"
-                      onClick={() => handleDelete(comment.id)}
+                      onClick={() => deleteMutation.mutate(comment.id)}
                       disabled={isSubmitting}
                     >
                       Confirm delete comment

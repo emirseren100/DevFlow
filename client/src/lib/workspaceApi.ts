@@ -1,4 +1,4 @@
-import { apiRequest } from './apiClient';
+import { apiRequest, get } from './apiClient';
 
 export type WorkspaceRole = 'OWNER' | 'ADMIN' | 'MEMBER';
 
@@ -28,8 +28,8 @@ export interface WorkspaceMember {
   joinedAt: string;
 }
 
-export function listWorkspaces(): Promise<WorkspaceSummary[]> {
-  return apiRequest<{ workspaces: WorkspaceSummary[] }>('/workspaces').then(
+export function listWorkspaces(signal?: AbortSignal): Promise<WorkspaceSummary[]> {
+  return apiRequest<{ workspaces: WorkspaceSummary[] }>('/workspaces', get(signal)).then(
     (data) => data.workspaces,
   );
 }
@@ -41,8 +41,11 @@ export function createWorkspace(name: string): Promise<WorkspaceDetail> {
   }).then((data) => data.workspace);
 }
 
-export function getWorkspace(workspaceId: string): Promise<WorkspaceDetail> {
-  return apiRequest<{ workspace: WorkspaceDetail }>(`/workspaces/${workspaceId}`).then(
+export function getWorkspace(
+  workspaceId: string,
+  signal?: AbortSignal,
+): Promise<WorkspaceDetail> {
+  return apiRequest<{ workspace: WorkspaceDetail }>(`/workspaces/${workspaceId}`, get(signal)).then(
     (data) => data.workspace,
   );
 }
@@ -58,10 +61,14 @@ export function deleteWorkspace(workspaceId: string): Promise<void> {
   return apiRequest(`/workspaces/${workspaceId}`, { method: 'DELETE' }).then(() => undefined);
 }
 
-export function listMembers(workspaceId: string): Promise<WorkspaceMember[]> {
-  return apiRequest<{ members: WorkspaceMember[] }>(`/workspaces/${workspaceId}/members`).then(
-    (data) => data.members,
-  );
+export function listMembers(
+  workspaceId: string,
+  signal?: AbortSignal,
+): Promise<WorkspaceMember[]> {
+  return apiRequest<{ members: WorkspaceMember[] }>(
+    `/workspaces/${workspaceId}/members`,
+    get(signal),
+  ).then((data) => data.members);
 }
 
 export function addMember(

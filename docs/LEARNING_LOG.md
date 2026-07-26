@@ -630,3 +630,111 @@ user may not move is convenience, not security, because the server checks the ro
 again. Realtime updates are deliberately deferred: a WebSocket layer would add a
 protocol, connection state and per-message authorization for a benefit the MVP
 does not need.
+
+## Phase 7 — Dashboard, Application Shell and Frontend Integration
+
+**Phase:** 7 — Dashboard, application shell and frontend integration (2026-07-26)
+
+**Concepts learned:**
+- Client state versus server state — they look alike and behave nothing alike.
+  Client state is owned by the browser: a form draft, "is this menu open", the
+  current filter. It is always correct, because nobody else can change it.
+  Server state is a *copy* of something PostgreSQL owns: a project list, an
+  issue, a member count. The moment it is read it can already be out of date,
+  and someone else can change it without telling you. So it needs a cache, a
+  notion of staleness and a way to refresh — which is exactly what a client
+  state tool like Redux does not give you.
+- TanStack Query — a cache for server state, keyed by a query key. It gives
+  every screen the same four outcomes (`isPending`, `isError`, empty, data) for
+  free, shares one request between all the components that ask for the same
+  key, and knows how to mark data stale after a write. It is not a request
+  library: `fetch` still does the request.
+- Query keys — the address of a piece of server data in the cache. Two
+  components with the same key see the same data and cause one request; two
+  different keys are two different things. Keys are matched by *prefix*, which
+  is why `['workspaces','detail','w1']` also matches everything below it, and
+  why writing keys in one factory file instead of inline is what makes
+  invalidation reliable.
+- Caching and stale data — cached data is served immediately, then refreshed if
+  it is older than `staleTime`. That is why navigating back to a page is
+  instant instead of showing a spinner again. The trade is that data can be a
+  few seconds old, which is fine for a dashboard and would not be for a bank
+  balance.
+- Invalidation — "this data may have changed, fetch it again next time it is
+  needed". After a mutation you invalidate the keys the write actually affected,
+  not the whole cache: adding a member touches the members, the workspace and
+  the dashboard, and nothing else. Invalidating everything works and is lazy —
+  it turns one write into a dozen requests.
+- Mutation lifecycle — `onMutate` (optionally update the cache optimistically
+  and keep the previous value), `onError` (put the previous value back),
+  `onSuccess` (write the confirmed server answer, then invalidate). The Kanban
+  move uses all three, which is why a refused move can never leave a duplicated
+  or missing card.
+- Nested layouts — one route renders the shell and its children render into an
+  outlet. The shell mounts once, so the header, the switcher and the navigation
+  are not rebuilt on every navigation, and no page has to remember to draw the
+  frame around itself.
+- Dashboard aggregation — one endpoint that answers a whole screen. The
+  alternative is six list requests that arrive at six different moments and
+  describe six slightly different states. Counting happens in PostgreSQL with
+  `count` and `groupBy`, so the response is a handful of numbers instead of
+  every issue in the workspace.
+- Loading, error and empty states — four outcomes, not two. "No data" is not an
+  error and must explain the next useful action; a blank screen while loading
+  looks like a bug; and an error message must say what happened without leaking
+  a stack trace or a server internal.
+- URL state — the filters live in the query string, so the browser's back
+  button, a reload and a pasted link all work. The URL is a piece of state the
+  user can edit, share and bookmark, which no `useState` can be.
+- Avoiding N+1 — on the server it means not running one query per row (`groupBy`
+  instead of a count per project). On the client it means not firing the same
+  request from every nested component: one query key, one request, shared.
+- Responsive application shells — structural responsiveness first. One
+  breakpoint decides whether the navigation stands beside the content or
+  collapses behind a labelled `Menu` button with `aria-expanded`; cards wrap on
+  their own with a grid; the five-column board scrolls sideways instead of being
+  squeezed. None of that is visual design, and all of it is required for the
+  page to be usable at 390px.
+
+**Mistakes and corrections:**
+- Query keys were nested so naturally that `project(w, p)` turned out to be the
+  prefix of the board, the issues and the feeds below it. Invalidating the
+  project after a Kanban move therefore refetched the board and threw away the
+  confirmed answer that had just been written into the cache. The fix was to be
+  explicit: `exact: true` when only the detail changed, and separate `…Lists`
+  keys when only the lists did.
+- The first `QueryClient` was a module-level constant. Every test then shared
+  one cache, so a test could see data another test had loaded. Creating it in
+  `useState` inside the App component gives each mounted application — one in
+  the browser, one per test — its own cache.
+- Existing component tests assumed the old behaviour where a successful write
+  updated a local array. With a cache the list is re-read from the server
+  instead, so the mocks had to become stateful. That is a better test: it now
+  proves the screen shows what the server actually has.
+
+**Interview explanation:**
+Phase 7 turned a set of working pages into one application. Everything behind
+`/app` renders inside a single shell — brand, workspace switcher, workspace
+navigation, current user, sign out — using React Router nested layouts, so the
+frame mounts once and each page contributes only its own content and its own
+`<h1>`. The bigger change is that server data moved out of `useEffect` into
+TanStack Query. The distinction that matters is client state versus server
+state: a form draft is owned by the browser and is always right, while a project
+list is a copy of something the database owns and can be stale the instant it
+arrives. TanStack Query gives that copy a key, a cache, a staleness rule and an
+invalidation story, which is why the same workspace list is fetched once for the
+switcher and every nested page instead of once per component. All keys come from
+one factory file, because invalidation is only correct if two places agree on
+the exact key, and after a mutation only the affected keys are invalidated —
+adding a member refreshes the members, the workspace and the dashboard, and a
+Kanban move refreshes the board plus, only if the status really changed, the
+issue, the lists, the feeds and the metrics. Retries are off on purpose: a 401,
+403 or 404 is a correct answer, not flakiness, so the error state offers a
+visible "Try again" instead. The dashboard itself is one endpoint rather than
+six requests, so the numbers describe one consistent moment; they are computed
+with Prisma `count` and `groupBy` in PostgreSQL, never by downloading issues and
+counting them in the browser, and "overdue" is decided against the server clock
+because a date sent by a browser can be wrong or forged. Finally, loading, empty
+and error states are shared components, so no screen is ever blank, an empty
+state always names the next useful action, and a 403 explains the missing
+permission instead of showing an error nobody can act on.

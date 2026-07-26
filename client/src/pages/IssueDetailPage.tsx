@@ -1,12 +1,17 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useMutation, useQueries, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 
 import ActivityFeed from '../components/ActivityFeed';
+import Breadcrumbs from '../components/Breadcrumbs';
 import CommentSection from '../components/CommentSection';
-import { ApiError } from '../lib/apiClient';
+import PageHeader from '../components/PageHeader';
+import { PriorityBadge, StatusBadge } from '../components/badges';
+import { ErrorState, LoadingState, PermissionNotice } from '../components/states';
+import { errorMessage } from '../lib/apiClient';
 import { listIssueActivities } from '../lib/collaborationApi';
-import type { IssueDetail, IssuePriority, IssueStatus, IssueType, SprintSummary } from '../lib/projectApi';
+import type { IssueDetail, IssueInput, IssuePriority, IssueStatus, IssueType } from '../lib/projectApi';
 import {
   ISSUE_PRIORITIES,
   ISSUE_STATUSES,
@@ -16,12 +21,8 @@ import {
   listSprints,
   updateIssue,
 } from '../lib/projectApi';
+import { queryKeys } from '../lib/queryKeys';
 import { listMembers } from '../lib/workspaceApi';
-import type { WorkspaceMember } from '../lib/workspaceApi';
-
-function messageOf(error: unknown): string {
-  return error instanceof ApiError ? error.message : 'Something went wrong. Please try again.';
-}
 
 function formatDate(value: string | null): string {
   return value ? new Date(value).toLocaleDateString() : '—';
@@ -35,17 +36,11 @@ function toDateInput(value: string | null): string {
 export default function IssueDetailPage() {
   const { workspaceId = '', projectId = '', issueId = '' } = useParams();
   const navigate = useNavigate();
-
-  const [issue, setIssue] = useState<IssueDetail | null>(null);
-  const [members, setMembers] = useState<WorkspaceMember[]>([]);
-  const [sprints, setSprints] = useState<SprintSummary[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
 
   const [isEditing, setIsEditing] = useState(false);
-  const [isBusy, setIsBusy] = useState(false);
-  const [actionError, setActionError] = useState<string | null>(null);
   const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -56,152 +51,181 @@ export default function IssueDetailPage() {
   const [sprintId, setSprintId] = useState('');
   const [dueDate, setDueDate] = useState('');
 
-  function fillForm(detail: IssueDetail): void {
-    setTitle(detail.title);
-    setDescription(detail.description ?? '');
-    setType(detail.type);
-    setPriority(detail.priority);
-    setStatus(detail.status);
-    setAssigneeId(detail.assignee?.id ?? '');
-    setSprintId(detail.sprint?.id ?? '');
-    setDueDate(toDateInput(detail.dueDate));
-  }
+  // Three independent queries for one screen. The member list and the sprint
+  // list are shared with the create page, so opening both reuses the cache.
+  const [issueQuery, membersQuery, sprintsQuery] = useQueries({
+    queries: [
+      {
+        queryKey: queryKeys.issue(workspaceId, projectId, issueId),
+        queryFn: ({ signal }: { signal: AbortSignal }) =>
+          getIssue(workspaceId, projectId, issueId, signal),
+      },
+      {
+        queryKey: queryKeys.workspaceMembers(workspaceId),
+        queryFn: ({ signal }: { signal: AbortSignal }) => listMembers(workspaceId, signal),
+      },
+      {
+        queryKey: queryKeys.sprints(workspaceId, projectId),
+        queryFn: ({ signal }: { signal: AbortSignal }) =>
+          listSprints(workspaceId, projectId, signal),
+      },
+    ],
+  });
 
+  const issue = issueQuery.data;
+
+  // The edit form is filled from the server copy whenever a different issue is
+  // loaded, and never while the user is typing in it.
   useEffect(() => {
-    let active = true;
+    if (!issue || isEditing) {
+      return;
+    }
 
-    setIsLoading(true);
-    setLoadError(null);
+    setTitle(issue.title);
+    setDescription(issue.description ?? '');
+    setType(issue.type);
+    setPriority(issue.priority);
+    setStatus(issue.status);
+    setAssigneeId(issue.assignee?.id ?? '');
+    setSprintId(issue.sprint?.id ?? '');
+    setDueDate(toDateInput(issue.dueDate));
+  }, [issue, isEditing]);
 
-    Promise.all([
-      getIssue(workspaceId, projectId, issueId),
-      listMembers(workspaceId),
-      listSprints(workspaceId, projectId),
-    ])
-      .then(([detail, memberList, sprintList]) => {
-        if (!active) return;
+  /**
+   * Saving an issue changes its detail, every list it appears in, the project
+   * summary, the board, the feeds and the workspace metrics.
+   */
+  function invalidateAfterIssueChange() {
+    void queryClient.invalidateQueries({ queryKey: queryKeys.issueLists(workspaceId, projectId) });
+    void queryClient.invalidateQueries({
+      queryKey: queryKeys.project(workspaceId, projectId),
+      exact: true,
+    });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.board(workspaceId, projectId) });
+    void queryClient.invalidateQueries({
+      queryKey: queryKeys.projectActivity(workspaceId, projectId),
+    });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.workspaceDashboard(workspaceId) });
+  }
 
-        setIssue(detail);
-        fillForm(detail);
-        setMembers(memberList);
-        setSprints(sprintList);
-      })
-      .catch((error: unknown) => {
-        if (active) setLoadError(messageOf(error));
-      })
-      .finally(() => {
-        if (active) setIsLoading(false);
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [workspaceId, projectId, issueId]);
-
-  // Stable, so the history section refetches only when its page changes.
-  const loadActivities = useCallback(
-    (page: number) => listIssueActivities(workspaceId, projectId, issueId, page),
-    [workspaceId, projectId, issueId],
-  );
-
-  async function handleSave(event: FormEvent) {
-    event.preventDefault();
-    setIsBusy(true);
-    setActionError(null);
-
-    try {
-      const updated = await updateIssue(workspaceId, projectId, issueId, {
-        title,
-        description,
-        type,
-        priority,
-        status,
-        assigneeId: assigneeId || null,
-        sprintId: sprintId || null,
-        dueDate: dueDate || null,
-      });
-
-      setIssue(updated);
-      fillForm(updated);
+  const updateMutation = useMutation({
+    mutationFn: (input: Partial<IssueInput>) =>
+      updateIssue(workspaceId, projectId, issueId, input),
+    onSuccess: (updated: IssueDetail) => {
+      setActionError(null);
       setIsEditing(false);
-    } catch (error) {
-      setActionError(messageOf(error));
-    } finally {
-      setIsBusy(false);
-    }
-  }
+      queryClient.setQueryData(queryKeys.issue(workspaceId, projectId, issueId), updated);
+      invalidateAfterIssueChange();
+    },
+    onError: (error) => setActionError(errorMessage(error)),
+  });
 
-  async function handleDelete() {
-    setIsBusy(true);
-    setActionError(null);
-
-    try {
-      await deleteIssue(workspaceId, projectId, issueId);
+  const deleteMutation = useMutation({
+    mutationFn: () => deleteIssue(workspaceId, projectId, issueId),
+    onSuccess: () => {
+      queryClient.removeQueries({ queryKey: queryKeys.issue(workspaceId, projectId, issueId) });
+      invalidateAfterIssueChange();
       navigate(`/app/workspaces/${workspaceId}/projects/${projectId}`);
-    } catch (error) {
-      setActionError(messageOf(error));
-    } finally {
-      setIsBusy(false);
-    }
+    },
+    onError: (error) => setActionError(errorMessage(error)),
+  });
+
+  if (issueQuery.isPending) {
+    return <LoadingState label="Loading issue…" />;
   }
 
-  if (isLoading) {
-    return <p role="status">Loading issue…</p>;
+  if (issueQuery.isError) {
+    return (
+      <ErrorState
+        error={issueQuery.error}
+        onRetry={() => void issueQuery.refetch()}
+        backTo={`/app/workspaces/${workspaceId}/projects/${projectId}`}
+        backLabel="Back to the project"
+      />
+    );
   }
 
-  if (loadError) {
-    return <p role="alert">{loadError}</p>;
-  }
+  const detail = issueQuery.data;
+  const members = membersQuery.data ?? [];
+  const sprints = sprintsQuery.data ?? [];
+  const isBusy = updateMutation.isPending || deleteMutation.isPending;
 
-  if (!issue) {
-    return null;
+  function handleSave(event: FormEvent) {
+    event.preventDefault();
+
+    updateMutation.mutate({
+      title,
+      description,
+      type,
+      priority,
+      status,
+      assigneeId: assigneeId || null,
+      sprintId: sprintId || null,
+      dueDate: dueDate || null,
+    });
   }
 
   return (
-    <section>
+    <>
+      <Breadcrumbs
+        items={[
+          { label: 'Workspaces', to: '/app/workspaces' },
+          { label: 'Projects', to: `/app/workspaces/${workspaceId}/projects` },
+          {
+            label: detail.project.key,
+            to: `/app/workspaces/${workspaceId}/projects/${projectId}`,
+          },
+          { label: detail.displayKey },
+        ]}
+      />
+
+      <PageHeader title={`${detail.displayKey} ${detail.title}`} />
+
+      <p>
+        <StatusBadge status={detail.status} /> <PriorityBadge priority={detail.priority} />
+      </p>
+
+      <dl>
+        <dt>Description</dt>
+        <dd>{detail.description ?? 'No description.'}</dd>
+        <dt>Type</dt>
+        <dd>{detail.type}</dd>
+        <dt>Status</dt>
+        <dd>{detail.status}</dd>
+        <dt>Priority</dt>
+        <dd>{detail.priority}</dd>
+        <dt>Reporter</dt>
+        <dd>{detail.reporter.name}</dd>
+        <dt>Assignee</dt>
+        <dd>{detail.assignee ? detail.assignee.name : 'Unassigned'}</dd>
+        <dt>Sprint</dt>
+        <dd>{detail.sprint ? detail.sprint.name : 'No sprint'}</dd>
+        <dt>Due date</dt>
+        <dd>{formatDate(detail.dueDate)}</dd>
+        <dt>Created</dt>
+        <dd>{formatDate(detail.createdAt)}</dd>
+        <dt>Updated</dt>
+        <dd>{formatDate(detail.updatedAt)}</dd>
+      </dl>
+
       <p>
         <Link to={`/app/workspaces/${workspaceId}/projects/${projectId}`}>Back to the project</Link>
       </p>
 
-      <h1>
-        {issue.displayKey} {issue.title}
-      </h1>
-
-      <dl>
-        <dt>Description</dt>
-        <dd>{issue.description ?? 'No description.'}</dd>
-        <dt>Type</dt>
-        <dd>{issue.type}</dd>
-        <dt>Status</dt>
-        <dd>{issue.status}</dd>
-        <dt>Priority</dt>
-        <dd>{issue.priority}</dd>
-        <dt>Reporter</dt>
-        <dd>{issue.reporter.name}</dd>
-        <dt>Assignee</dt>
-        <dd>{issue.assignee ? issue.assignee.name : 'Unassigned'}</dd>
-        <dt>Sprint</dt>
-        <dd>{issue.sprint ? issue.sprint.name : 'No sprint'}</dd>
-        <dt>Due date</dt>
-        <dd>{formatDate(issue.dueDate)}</dd>
-        <dt>Created</dt>
-        <dd>{formatDate(issue.createdAt)}</dd>
-        <dt>Updated</dt>
-        <dd>{formatDate(issue.updatedAt)}</dd>
-      </dl>
-
       {/* The server decided these two flags; the page only reads them. */}
-      {!issue.permissions.canUpdate && (
-        <p>You may only edit issues you reported or are assigned to.</p>
+      {!detail.permissions.canUpdate && (
+        <PermissionNotice>
+          You may only edit issues you reported or are assigned to.
+        </PermissionNotice>
       )}
 
-      {issue.permissions.canUpdate && !isEditing && (
+      {detail.permissions.canUpdate && !isEditing && (
         <button type="button" onClick={() => setIsEditing(true)}>
           Edit issue
         </button>
       )}
 
-      {issue.permissions.canUpdate && isEditing && (
+      {detail.permissions.canUpdate && isEditing && (
         <form onSubmit={handleSave}>
           <h2>Edit issue</h2>
 
@@ -307,11 +331,11 @@ export default function IssueDetailPage() {
         </form>
       )}
 
-      {issue.permissions.canDelete &&
+      {detail.permissions.canDelete &&
         (isConfirmingDelete ? (
           <>
             <p role="alert">Deleting this issue cannot be undone.</p>
-            <button type="button" onClick={handleDelete} disabled={isBusy}>
+            <button type="button" onClick={() => deleteMutation.mutate()} disabled={isBusy}>
               Confirm delete
             </button>
             <button type="button" onClick={() => setIsConfirmingDelete(false)} disabled={isBusy}>
@@ -332,9 +356,12 @@ export default function IssueDetailPage() {
           wrote, the other is what the system recorded. */}
       <ActivityFeed
         heading="Issue history"
-        load={loadActivities}
+        queryKey={queryKeys.issueActivity(workspaceId, projectId, issueId)}
+        load={(page, signal) =>
+          listIssueActivities(workspaceId, projectId, issueId, page, undefined, signal)
+        }
         emptyText="No recorded change yet."
       />
-    </section>
+    </>
   );
 }

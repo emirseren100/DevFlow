@@ -4,7 +4,8 @@ import type { ProjectContext } from '../projects/project.types.js';
 import type { ListActivitiesQuery } from './activity.schemas.js';
 import type { ActivityItem, ActivityListResult, ActivityMetadata } from './activity.types.js';
 
-const activitySelect = {
+/** Shared by every feed and by the workspace dashboard: never a whole record. */
+export const activitySelect = {
   id: true,
   type: true,
   createdAt: true,
@@ -60,7 +61,7 @@ function sanitizeMetadata(metadata: unknown): ActivityMetadata {
   return safe;
 }
 
-type ActivityRow = {
+export type ActivityRow = {
   id: string;
   type: ActivityItem['type'];
   createdAt: Date;
@@ -70,7 +71,7 @@ type ActivityRow = {
   issue: { id: string; number: number; title: string } | null;
 };
 
-function toItem(activity: ActivityRow): ActivityItem {
+export function toActivityItem(activity: ActivityRow): ActivityItem {
   return {
     id: activity.id,
     type: activity.type,
@@ -119,7 +120,7 @@ async function listActivities(
   const totalPages = Math.max(1, Math.ceil(total / query.limit));
 
   return {
-    activities: activities.map(toItem),
+    activities: activities.map(toActivityItem),
     pagination: {
       page: query.page,
       limit: query.limit,

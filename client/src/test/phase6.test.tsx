@@ -295,9 +295,19 @@ describe('comments on the issue page', () => {
   });
 
   it('sends the typed comment and adds it to the list', async () => {
+    // The list is re-read after a successful write, so the mock behaves like a
+    // real server: the new comment is there the next time it is asked.
+    const stored: ReturnType<typeof comment>[] = [];
     const fetchMock = mockApi({
       ...baseHandlers(),
-      [`POST ${ISSUE_PATH}/comments`]: ok({ comment: comment('c1', 'On it.') }),
+      [`GET ${ISSUE_PATH}/comments`]: () => jsonResponse({ success: true, data: { comments: stored } }),
+      [`POST ${ISSUE_PATH}/comments`]: () => {
+        const created = comment('c1', 'On it.');
+
+        stored.push(created);
+
+        return jsonResponse({ success: true, data: { comment: created } });
+      },
     });
     renderApp('/app/workspaces/w1/projects/p1/issues/i1');
 
@@ -346,12 +356,17 @@ describe('comments on the issue page', () => {
   });
 
   it('sends an edited body for the author\'s own comment', async () => {
+    let stored = [comment('c1', 'Frist.')];
     const fetchMock = mockApi({
       ...baseHandlers(),
-      [`GET ${ISSUE_PATH}/comments`]: ok({ comments: [comment('c1', 'Frist.')] }),
-      [`PATCH ${ISSUE_PATH}/comments/c1`]: ok({
-        comment: { ...comment('c1', 'First.'), isEdited: true },
-      }),
+      [`GET ${ISSUE_PATH}/comments`]: () => jsonResponse({ success: true, data: { comments: stored } }),
+      [`PATCH ${ISSUE_PATH}/comments/c1`]: () => {
+        const updated = { ...comment('c1', 'First.'), isEdited: true };
+
+        stored = [updated];
+
+        return jsonResponse({ success: true, data: { comment: updated } });
+      },
     });
     renderApp('/app/workspaces/w1/projects/p1/issues/i1');
 
@@ -370,10 +385,15 @@ describe('comments on the issue page', () => {
   });
 
   it('asks for a confirmation before deleting a comment', async () => {
+    let stored = [comment('c1', 'Mine.')];
     const fetchMock = mockApi({
       ...baseHandlers(),
-      [`GET ${ISSUE_PATH}/comments`]: ok({ comments: [comment('c1', 'Mine.')] }),
-      [`DELETE ${ISSUE_PATH}/comments/c1`]: ok({ deleted: true }),
+      [`GET ${ISSUE_PATH}/comments`]: () => jsonResponse({ success: true, data: { comments: stored } }),
+      [`DELETE ${ISSUE_PATH}/comments/c1`]: () => {
+        stored = [];
+
+        return jsonResponse({ success: true, data: { deleted: true } });
+      },
     });
     renderApp('/app/workspaces/w1/projects/p1/issues/i1');
 
@@ -387,7 +407,9 @@ describe('comments on the issue page', () => {
       expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'DELETE')).toBe(true);
     });
 
-    expect(screen.queryByText('Mine.')).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.queryByText('Mine.')).not.toBeInTheDocument();
+    });
   });
 });
 

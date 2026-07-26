@@ -1,25 +1,20 @@
-import { useEffect, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useState } from 'react';
 import type { FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 
-import { ApiError } from '../lib/apiClient';
-import type { ProjectSummary } from '../lib/projectApi';
+import Breadcrumbs from '../components/Breadcrumbs';
+import PageHeader from '../components/PageHeader';
+import { EmptyState, ErrorState, LoadingState, PermissionNotice } from '../components/states';
+import { errorMessage } from '../lib/apiClient';
 import { canManageProjects, createProject, listProjects } from '../lib/projectApi';
+import { queryKeys } from '../lib/queryKeys';
 import { getWorkspace } from '../lib/workspaceApi';
-import type { WorkspaceDetail } from '../lib/workspaceApi';
-
-function messageOf(error: unknown): string {
-  return error instanceof ApiError ? error.message : 'Something went wrong. Please try again.';
-}
 
 export default function ProjectListPage() {
   const { workspaceId = '' } = useParams();
   const navigate = useNavigate();
-
-  const [workspace, setWorkspace] = useState<WorkspaceDetail | null>(null);
-  const [projects, setProjects] = useState<ProjectSummary[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
 
   const [status, setStatus] = useState('');
   const [search, setSearch] = useState('');
@@ -27,68 +22,66 @@ export default function ProjectListPage() {
   const [name, setName] = useState('');
   const [key, setKey] = useState('');
   const [description, setDescription] = useState('');
-  const [isCreating, setIsCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
 
-  // The workspace gives the page its heading and the caller's real role; the
-  // project list is refetched whenever a filter changes.
-  useEffect(() => {
-    let active = true;
+  const workspaceQuery = useQuery({
+    queryKey: queryKeys.workspace(workspaceId),
+    queryFn: ({ signal }) => getWorkspace(workspaceId, signal),
+  });
 
-    setIsLoading(true);
-    setLoadError(null);
+  // The filters are part of the key, so each combination is cached separately
+  // and a stale answer for an older filter can never replace the current list.
+  const projectsQuery = useQuery({
+    queryKey: queryKeys.projectList(workspaceId, { status, search }),
+    queryFn: ({ signal }) => listProjects(workspaceId, { status, search }, signal),
+  });
 
-    Promise.all([getWorkspace(workspaceId), listProjects(workspaceId, { status, search })])
-      .then(([detail, list]) => {
-        if (!active) return;
-
-        setWorkspace(detail);
-        setProjects(list);
-      })
-      .catch((error: unknown) => {
-        if (active) setLoadError(messageOf(error));
-      })
-      .finally(() => {
-        if (active) setIsLoading(false);
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [workspaceId, status, search]);
-
-  async function handleCreate(event: FormEvent) {
-    event.preventDefault();
-    setIsCreating(true);
-    setCreateError(null);
-
-    try {
-      const project = await createProject(workspaceId, {
-        name,
-        key,
-        ...(description ? { description } : {}),
-      });
-
+  const createMutation = useMutation({
+    mutationFn: (input: { name: string; key: string; description?: string }) =>
+      createProject(workspaceId, input),
+    onSuccess: (project) => {
+      setCreateError(null);
+      // A new project changes the list and the workspace summary, nothing else.
+      void queryClient.invalidateQueries({ queryKey: queryKeys.projectLists(workspaceId) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.workspaceDashboard(workspaceId) });
       navigate(`/app/workspaces/${workspaceId}/projects/${project.id}`);
-    } catch (error) {
-      setCreateError(messageOf(error));
-    } finally {
-      setIsCreating(false);
-    }
+    },
+    onError: (error) => setCreateError(errorMessage(error)),
+  });
+
+  function handleCreate(event: FormEvent) {
+    event.preventDefault();
+    createMutation.mutate({ name, key, ...(description ? { description } : {}) });
   }
 
+  const workspace = workspaceQuery.data;
+  const projects = projectsQuery.data ?? [];
   const canManage = workspace ? canManageProjects(workspace.role) : false;
 
-  return (
-    <section>
-      <h1>Projects</h1>
+  if (workspaceQuery.isError) {
+    return (
+      <ErrorState error={workspaceQuery.error} onRetry={() => void workspaceQuery.refetch()} />
+    );
+  }
 
-      {workspace && (
-        <p>
-          Workspace: <Link to={`/app/workspaces/${workspaceId}`}>{workspace.name}</Link> — your role
-          is {workspace.role}
-        </p>
-      )}
+  return (
+    <>
+      <Breadcrumbs
+        items={[
+          { label: 'Workspaces', to: '/app/workspaces' },
+          ...(workspace
+            ? [{ label: workspace.name, to: `/app/workspaces/${workspaceId}/dashboard` }]
+            : []),
+          { label: 'Projects' },
+        ]}
+      />
+
+      <PageHeader
+        title="Projects"
+        {...(workspace
+          ? { description: `Workspace ${workspace.name} — your role is ${workspace.role}.` }
+          : {})}
+      />
 
       <form role="search" onSubmit={(event) => event.preventDefault()}>
         <label htmlFor="project-search">Search projects</label>
@@ -110,12 +103,21 @@ export default function ProjectListPage() {
         </select>
       </form>
 
-      {isLoading && <p role="status">Loading projects…</p>}
+      {projectsQuery.isPending && <LoadingState label="Loading projects…" />}
 
-      {loadError && <p role="alert">{loadError}</p>}
+      {projectsQuery.isError && (
+        <ErrorState error={projectsQuery.error} onRetry={() => void projectsQuery.refetch()} />
+      )}
 
-      {!isLoading && !loadError && projects.length === 0 && (
-        <p>No project matches this view yet.</p>
+      {projectsQuery.isSuccess && projects.length === 0 && (
+        <EmptyState
+          title="No project matches this view"
+          description={
+            canManage
+              ? 'Clear the filters, or create a project with the form below.'
+              : 'Clear the filters, or ask an owner or admin to create one.'
+          }
+        />
       )}
 
       {projects.length > 0 && (
@@ -137,7 +139,7 @@ export default function ProjectListPage() {
 
       {/* Only OWNER and ADMIN see this form. The server refuses the request from
           anybody else even if the form is recreated by hand. */}
-      {canManage && (
+      {canManage ? (
         <form onSubmit={handleCreate}>
           <h2>Create a project</h2>
 
@@ -171,11 +173,17 @@ export default function ProjectListPage() {
 
           {createError && <p role="alert">{createError}</p>}
 
-          <button type="submit" disabled={isCreating}>
-            {isCreating ? 'Creating…' : 'Create project'}
+          <button type="submit" disabled={createMutation.isPending}>
+            {createMutation.isPending ? 'Creating…' : 'Create project'}
           </button>
         </form>
+      ) : (
+        workspace && (
+          <PermissionNotice>
+            Only an owner or an admin can create a project in this workspace.
+          </PermissionNotice>
+        )
       )}
-    </section>
+    </>
   );
 }

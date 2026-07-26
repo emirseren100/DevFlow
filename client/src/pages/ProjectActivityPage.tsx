@@ -1,30 +1,44 @@
-import { useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 
 import ActivityFeed from '../components/ActivityFeed';
+import Breadcrumbs from '../components/Breadcrumbs';
+import PageHeader from '../components/PageHeader';
 import ProjectNav from '../components/ProjectNav';
 import { listProjectActivities } from '../lib/collaborationApi';
+import { queryKeys } from '../lib/queryKeys';
 
 export default function ProjectActivityPage() {
   const { workspaceId = '', projectId = '' } = useParams();
 
-  // Stable between renders, so the feed refetches only when the page changes.
-  const load = useCallback(
-    (page: number) => listProjectActivities(workspaceId, projectId, page),
-    [workspaceId, projectId],
-  );
-
   return (
-    <section>
+    <>
+      <Breadcrumbs
+        items={[
+          { label: 'Workspaces', to: '/app/workspaces' },
+          { label: 'Projects', to: `/app/workspaces/${workspaceId}/projects` },
+          {
+            label: 'Project',
+            to: `/app/workspaces/${workspaceId}/projects/${projectId}`,
+          },
+          { label: 'Activity' },
+        ]}
+      />
+
       <ProjectNav workspaceId={workspaceId} projectId={projectId} />
 
-      <h1>Project activity</h1>
+      <PageHeader
+        title="Project activity"
+        description="Everything the system recorded for this project, newest first."
+      />
 
       <ActivityFeed
         heading="Recent activity"
-        load={load}
+        queryKey={queryKeys.projectActivity(workspaceId, projectId)}
+        load={(page, signal) =>
+          listProjectActivities(workspaceId, projectId, page, undefined, signal)
+        }
         emptyText="Nothing has happened in this project yet."
       />
-    </section>
+    </>
   );
 }

@@ -18,6 +18,12 @@ interface AuthContextValue {
   register: (input: { name: string; email: string; password: string }) => Promise<void>;
   login: (input: { email: string; password: string }) => Promise<void>;
   logout: () => Promise<void>;
+  /**
+   * Drops the current user without calling the server. Used when a request is
+   * refused with 401: the cookie is already gone or expired, so keeping a user
+   * on screen would only produce more failing requests.
+   */
+  clearUser: () => void;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -89,6 +95,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const clearUser = useCallback(() => {
+    setUser(null);
+  }, []);
+
+  // Memoised, so a rerender of the provider does not rerender every consumer
+  // with a brand-new object that only looks different.
   const value = useMemo<AuthContextValue>(
     () => ({
       user,
@@ -98,8 +110,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       register,
       login,
       logout,
+      clearUser,
     }),
-    [user, isLoading, error, register, login, logout],
+    [user, isLoading, error, register, login, logout, clearUser],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -7,8 +7,8 @@
 
 ## Current Phase
 
-**Phase 6 — Comments, Activity and Kanban — COMPLETED.**
-Phase 7 (frontend consolidation and dashboard) has not started.
+**Phase 7 — Dashboard, Application Shell and Frontend Integration — COMPLETED.**
+Phase 8 (testing hardening, Docker, CI and security) has not started.
 
 ## Completed Work
 
@@ -27,6 +27,11 @@ Phase 7 (frontend consolidation and dashboard) has not started.
 - Phase 6: issue comments, project and issue activity feeds, Kanban board with
   server-owned transactional ordering, client board/activity/comment UI, Phase 6
   integration and component tests.
+- Phase 7: workspace dashboard endpoint, dashboard page, shared authenticated
+  application shell with workspace switcher and navigation, TanStack Query as
+  the single server-state layer with centralized query keys and targeted
+  invalidation, shared loading/empty/error states, 403 and 404 experiences, and
+  a responsive structural layout.
 
 ## Current Architecture
 
@@ -57,6 +62,26 @@ client/src/components/CommentSection.tsx | ActivityFeed.tsx | ProjectNav.tsx
 client/src/pages/BoardPage.tsx | ProjectActivityPage.tsx
 ```
 
+Phase 7 added:
+
+```
+server/src/modules/dashboard/   dashboard.routes | service | types
+client/src/lib/queryKeys.ts     every TanStack Query key, in one factory
+client/src/lib/queryClient.ts   the one QueryClient and its defaults
+client/src/lib/dashboardApi.ts  typed dashboard call
+client/src/hooks/useWorkspaces.ts   shared workspace list + current workspace
+client/src/layouts/AppShell.tsx     the authenticated frame
+client/src/components/WorkspaceSwitcher.tsx | WorkspaceNavigation.tsx |
+                      Breadcrumbs.tsx | PageHeader.tsx | states.tsx | badges.tsx
+client/src/pages/DashboardPage.tsx | MembersPage.tsx
+```
+
+**No migration in Phase 7.** The dashboard only reads existing tables.
+
+`client/src/pages/AppPage.tsx` was replaced by `layouts/AppShell.tsx`. Member
+management moved out of the workspace detail page into `MembersPage`; the old
+page is now workspace **settings** (rename and danger zone).
+
 **No migration in Phase 6.** `Comment`, `ActivityLog`, `Issue.position` and
 `Issue.status` already existed from Phase 2, so the phase needed no schema change.
 
@@ -86,6 +111,15 @@ desc`.
 **Kanban endpoints:** `GET .../projects/:projectId/board`,
 `PATCH .../projects/:projectId/issues/:issueId/move` (`targetStatus`,
 `targetIndex` only).
+
+**Dashboard endpoint:** `GET /api/workspaces/:workspaceId/dashboard` — any
+member. Returns the workspace summary (role, member count, active and archived
+project counts), issue metrics (open, assigned to me, overdue, unassigned), the
+full status and priority distributions with explicit zeros, ~5 recently updated
+issues and ~8 recent activity rows, plus `generatedAt`. All counts come from
+Prisma `count`/`groupBy` filtered by `project: { workspaceId }`; no issue
+description, comment body or nested record is selected. `DONE` counts as closed,
+and overdue is `dueDate < now` measured against the **server** clock.
 
 **Authorization matrix (Phase 5)**
 
@@ -160,42 +194,72 @@ drag-and-drop, per-card "Move … to" fallback) and
 detail page now also carries the comment section and the issue history. Every
 project page links between **Issues**, **Board** and **Activity**.
 
+**Phase 7 client structure.** `RootLayout` keeps the public site; everything
+behind `/app` renders inside `AppShell` (brand, workspace switcher, workspace
+navigation, current user, sign out, one `<main>`). `/app` redirects to
+`/app/workspaces`, and `/app/workspaces/:workspaceId` redirects to
+`.../dashboard`. New routes: `.../dashboard`, `.../members`, `.../settings`.
+An unknown address inside `/app` renders the not-found page inside the shell.
+
+**Server state** is TanStack Query (`@tanstack/react-query` 5). One
+`QueryClient`, created in `App` inside `AuthProvider` so a `401` calls
+`clearUser`; defaults are `retry: false`, no refetch on focus, `staleTime`
+30s — error states offer a visible "Try again" instead of silent retries. Every
+key comes from `lib/queryKeys.ts`; a scope key is the prefix of everything below
+it, so `exact: true` and the `…Lists` helpers are used where a narrower scope is
+meant. `AuthProvider` still owns the authentication lifecycle.
+
+**Invalidation after a mutation** (targeted, never global): member changes →
+members + workspace + dashboard + workspace list; project create/update/delete →
+project lists + project detail + dashboard; issue create/update/delete → issue
+lists + project detail + board + project activity + dashboard; comments →
+comments + issue activity + project activity + dashboard; Kanban move → board
+always, and only on a real status change also the issue, the issue lists, the
+project detail, the feeds and the dashboard.
+
+**Shared components:** `AppShell`, `WorkspaceSwitcher`, `WorkspaceNavigation`,
+`Breadcrumbs`, `PageHeader`, `LoadingState`, `RefreshingHint`, `EmptyState`,
+`ErrorState`, `PermissionNotice`, `StatusBadge`, `PriorityBadge`. `ErrorState`
+picks its wording from the HTTP status: 403 explains the missing permission, 404
+the missing resource, and neither offers a retry.
+
+**Responsive structure:** one breakpoint at 900px. Below it the navigation
+collapses behind a `Menu` button (`aria-expanded`, `aria-controls`, focus
+returned on close); dashboard cards wrap through a grid; the board scrolls
+horizontally. This is layout only — visual identity is still Phase 9.
+
 ## Working Commands (from the repository root)
 
 | Command | Result |
 |---|---|
 | `npm run dev` | client 5174 + server 4000 |
-| `npm run typecheck` / `npm test` / `npm run build` | pass (223 tests) |
+| `npm run typecheck` / `npm test` / `npm run build` | pass (264 tests) |
 | `npm run db:validate` / `db:format` / `db:generate` | schema tooling, no database needed |
 | `npm run db:migrate` | `prisma migrate dev` (needs a real PostgreSQL) |
 | `npm run db:status` / `db:seed` / `db:check` | migration status, seed, read-only check |
 | `npm run db:test:prepare` | apply migrations to the test database |
-| `npm run test:auth` / `test:workspaces` / `test:projects` / `test:sprints` / `test:issues` / `test:comments` / `test:activities` / `test:kanban` | one server suite only |
+| `npm run test:auth` / `test:workspaces` / `test:projects` / `test:sprints` / `test:issues` / `test:comments` / `test:activities` / `test:kanban` / `test:dashboard` | one server suite only |
 | `npm run db:studio` | Prisma Studio (manual use only) |
 
-## Verification Status (Phase 6)
+## Verification Status (Phase 7)
 
 | Check | Status |
 |---|---|
 | `prisma format` / `prisma validate` | Passed |
-| Schema change needed | None (no Phase 6 migration) |
-| `npm run db:seed` (re-run, idempotent, column-local positions) | Passed |
-| `npm run test:comments` | Passed (25 tests) |
-| `npm run test:activities` | Passed (13 tests) |
-| `npm run test:kanban` | Passed (21 tests) |
-| Client Phase 6 tests | Passed (19 tests) |
-| `npm run test:auth` / `test:workspaces` / `test:projects` / `test:sprints` / `test:issues` | Passed (unchanged) |
-| `npm test` | Passed — client 58, server 165 (223 total) |
+| Schema change needed | None (no Phase 7 migration) |
+| `npm run test:dashboard` | Passed (17 tests) |
+| Client Phase 7 tests (`phase7.test.tsx`) | Passed (21 tests) |
+| Migrated client tests (workspaces, projects, Phase 6, auth) | Passed |
+| `npm test` | Passed — client 82, server 182 (264 total) |
 | `npm run typecheck` | Passed |
 | `npm run build` | Passed |
 | Manual: frontend 5174, backend 4000, `GET /api/health` public | 200 / 200 / 200 |
-| Manual: board without a cookie | 401 |
-| Manual: board columns from seed data | `BACKLOG 2, TODO 1, IN_PROGRESS 1, IN_REVIEW 1, DONE 1` |
-| Manual: OWNER move `API-4` to `IN_PROGRESS` | Positions `0, 1`, one `ISSUE_STATUS_CHANGED` |
-| Manual: comment created as the signed-in author | `canEdit: true` |
-| Manual: seeded MEMBER moving an issue she neither reported nor owns | 403 |
-| Manual: seeded MEMBER editing another user's comment | 403 |
-| Manual: comment permissions for a MEMBER | own `canEdit`/`canDelete` true, others false |
+| Manual: dashboard without a cookie | 401 |
+| Manual: dashboard of an unknown workspace | 404 |
+| Manual: seeded `Orbit Labs` dashboard | 3 members, 2 active projects, 8 open issues, 1 assigned to Ada, 0 overdue, 3 unassigned |
+| Manual: seeded status / priority distribution | `3/2/2/1/2` and `3/3/3/1`, all keys present |
+| Manual: recent lists | 5 issues, 8 activities |
+| Manual: dashboard response scanned for `passwordHash`, `tokenHash`, `description` | none present |
 
 ## Known Limitations
 
@@ -226,16 +290,26 @@ project page links between **Issues**, **Board** and **Activity**.
   only after a reload; there are no WebSockets, no notifications and no emails.
 - Activity is an append-only feed with no delete, no export and no workspace-wide
   view (project- and issue-scoped only).
-- Client data fetching is still plain `useEffect` + `useState`; no React Query,
-  no cache. UI styling is minimal on purpose (Phase 9).
+- Server state is TanStack Query, but the dashboard is still a plain request per
+  visit: there is no realtime push and no polling, so another person's change
+  appears on the next refetch (after the 30s `staleTime`, a mutation, or a
+  reload).
+- The dashboard has no date-range filter, no per-project breakdown and no export;
+  "assigned to me" and "overdue" both count open issues only.
+- There is no workspace-wide issue list, so the "Open issues", "Assigned to me"
+  and "Overdue issues" cards deliberately link nowhere.
+- Activity is still project- and issue-scoped; the only workspace-wide view is
+  the dashboard's eight most recent rows.
+- UI styling is structural only — layout, wrapping and a single 900px
+  breakpoint. Visual identity is Phase 9.
 - Still open from Phase 3: login rate limiting, email verification, password
   reset, MFA, session management and a CSRF strategy for cross-site deployment.
-- No dashboard, no Docker, no CI, no lint tooling (Phases 7-8).
+- No Docker, no CI, no lint tooling (Phase 8).
 
 ## Next Task
 
-**Phase 7 — Frontend consolidation, dashboard and full integration.** Bring the
-existing pages together: a real `/app` dashboard instead of the redirect to the
-workspace list, shared layout and navigation, consistent loading and error
-handling, and an end-to-end pass over the whole flow (register → workspace →
-project → issue → board → comment).
+**Phase 8 — Testing hardening, Docker, CI and security.** Raise coverage on the
+paths the integration tests do not reach, add Docker Compose for PostgreSQL and
+both services, add a GitHub Actions pipeline (typecheck, test, build), add lint
+tooling, and close the security items still open from Phase 3 (login rate
+limiting, session management, a CSRF strategy for cross-site deployment).

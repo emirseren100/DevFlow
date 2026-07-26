@@ -1,10 +1,15 @@
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
+import Breadcrumbs from '../components/Breadcrumbs';
+import PageHeader from '../components/PageHeader';
 import ProjectNav from '../components/ProjectNav';
-import { ApiError } from '../lib/apiClient';
-import type { IssueListResult, ProjectDetail } from '../lib/projectApi';
+import { PriorityBadge, StatusBadge } from '../components/badges';
+import { EmptyState, ErrorState, LoadingState } from '../components/states';
+import { errorMessage } from '../lib/apiClient';
+import type { IssueFilters, ProjectStatus } from '../lib/projectApi';
 import {
   ISSUE_PRIORITIES,
   ISSUE_STATUSES,
@@ -15,10 +20,7 @@ import {
   listIssues,
   updateProject,
 } from '../lib/projectApi';
-
-function messageOf(error: unknown): string {
-  return error instanceof ApiError ? error.message : 'Something went wrong. Please try again.';
-}
+import { queryKeys } from '../lib/queryKeys';
 
 /** Filter names that live in the URL, so a link restores the same view. */
 const FILTER_KEYS = ['search', 'status', 'type', 'priority', 'assigneeId', 'sprintId', 'sort'];
@@ -26,22 +28,24 @@ const FILTER_KEYS = ['search', 'status', 'type', 'priority', 'assigneeId', 'spri
 export default function ProjectDetailPage() {
   const { workspaceId = '', projectId = '' } = useParams();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
 
-  const [project, setProject] = useState<ProjectDetail | null>(null);
-  const [result, setResult] = useState<IssueListResult | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
-
   const [name, setName] = useState('');
-  const [actionError, setActionError] = useState<string | null>(null);
-  const [isBusy, setIsBusy] = useState(false);
   const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
 
-  // The URL is the single source of truth for the filters, so state is only
-  // ever written from a user action and the effect below just reads it back.
-  const query = searchParams.toString();
+  // The URL is the single source of truth for the filters. It survives a
+  // reload, it can be shared, and browser back/forward moves between views.
   const page = Number(searchParams.get('page') ?? '1');
+
+  const filters: IssueFilters = Object.fromEntries(
+    [...FILTER_KEYS, 'page'].flatMap((key) => {
+      const value = searchParams.get(key);
+
+      return value ? [[key, value] as const] : [];
+    }),
+  );
 
   function filterValue(key: string): string {
     return searchParams.get(key) ?? '';
@@ -68,102 +72,103 @@ export default function ProjectDetailPage() {
     setSearchParams(next);
   }
 
+  const projectQuery = useQuery({
+    queryKey: queryKeys.project(workspaceId, projectId),
+    queryFn: ({ signal }) => getProject(workspaceId, projectId, signal),
+  });
+
+  // A different filter set is different data, so it gets its own key and its
+  // own cache entry instead of overwriting the previous answer.
+  const issuesQuery = useQuery({
+    queryKey: queryKeys.issueList(workspaceId, projectId, filters),
+    queryFn: ({ signal }) => listIssues(workspaceId, projectId, filters, signal),
+  });
+
+  const loadedName = projectQuery.data?.name;
+
   useEffect(() => {
-    let active = true;
-    const params = new URLSearchParams(query);
-    const filters = Object.fromEntries(
-      [...FILTER_KEYS, 'page'].flatMap((key) => {
-        const value = params.get(key);
-
-        return value ? [[key, value] as const] : [];
-      }),
-    );
-
-    setIsLoading(true);
-    setLoadError(null);
-
-    Promise.all([getProject(workspaceId, projectId), listIssues(workspaceId, projectId, filters)])
-      .then(([detail, issues]) => {
-        if (!active) return;
-
-        setProject(detail);
-        setName(detail.name);
-        setResult(issues);
-      })
-      .catch((error: unknown) => {
-        if (active) setLoadError(messageOf(error));
-      })
-      .finally(() => {
-        if (active) setIsLoading(false);
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [workspaceId, projectId, query]);
-
-  async function runAction(action: () => Promise<void>) {
-    setIsBusy(true);
-    setActionError(null);
-
-    try {
-      await action();
-    } catch (error) {
-      setActionError(messageOf(error));
-    } finally {
-      setIsBusy(false);
+    if (loadedName !== undefined) {
+      setName(loadedName);
     }
+  }, [loadedName, projectId]);
+
+  /**
+   * Renaming or archiving a project changes the project itself, the lists it
+   * appears in and the workspace metrics. `exact` keeps the issues, the board
+   * and the feeds below it untouched.
+   */
+  function invalidateProject() {
+    void queryClient.invalidateQueries({
+      queryKey: queryKeys.project(workspaceId, projectId),
+      exact: true,
+    });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.projectLists(workspaceId) });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.workspaceDashboard(workspaceId) });
   }
+
+  const updateMutation = useMutation({
+    mutationFn: (input: { name?: string; status?: ProjectStatus }) =>
+      updateProject(workspaceId, projectId, input),
+    onSuccess: () => {
+      setActionError(null);
+      invalidateProject();
+    },
+    onError: (error) => setActionError(errorMessage(error)),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: () => deleteProject(workspaceId, projectId),
+    onSuccess: () => {
+      queryClient.removeQueries({ queryKey: queryKeys.project(workspaceId, projectId) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.projectLists(workspaceId) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.workspaceDashboard(workspaceId) });
+      navigate(`/app/workspaces/${workspaceId}/projects`);
+    },
+    onError: (error) => setActionError(errorMessage(error)),
+  });
+
+  if (projectQuery.isPending) {
+    return <LoadingState label="Loading project…" />;
+  }
+
+  if (projectQuery.isError) {
+    return (
+      <ErrorState
+        error={projectQuery.error}
+        onRetry={() => void projectQuery.refetch()}
+        backTo={`/app/workspaces/${workspaceId}/projects`}
+        backLabel="Back to projects"
+      />
+    );
+  }
+
+  const project = projectQuery.data;
+  const result = issuesQuery.data;
+  const canManage = canManageProjects(project.role);
+  const isBusy = updateMutation.isPending || deleteMutation.isPending;
 
   function handleRename(event: FormEvent) {
     event.preventDefault();
-
-    return runAction(async () => {
-      setProject(await updateProject(workspaceId, projectId, { name }));
-    });
-  }
-
-  function handleArchiveToggle() {
-    return runAction(async () => {
-      const status = project?.status === 'ARCHIVED' ? 'ACTIVE' : 'ARCHIVED';
-
-      setProject(await updateProject(workspaceId, projectId, { status }));
-    });
-  }
-
-  function handleDelete() {
-    return runAction(async () => {
-      await deleteProject(workspaceId, projectId);
-      navigate(`/app/workspaces/${workspaceId}/projects`);
-    });
-  }
-
-  const canManage = project ? canManageProjects(project.role) : false;
-
-  if (isLoading) {
-    return <p role="status">Loading project…</p>;
-  }
-
-  if (loadError) {
-    return <p role="alert">{loadError}</p>;
-  }
-
-  if (!project) {
-    return null;
+    updateMutation.mutate({ name });
   }
 
   return (
-    <section>
-      <p>
-        <Link to={`/app/workspaces/${workspaceId}/projects`}>Back to projects</Link>
-      </p>
+    <>
+      <Breadcrumbs
+        items={[
+          { label: 'Workspaces', to: '/app/workspaces' },
+          { label: 'Projects', to: `/app/workspaces/${workspaceId}/projects` },
+          { label: project.key },
+        ]}
+      />
 
       <ProjectNav workspaceId={workspaceId} projectId={projectId} />
 
-      <h1>
-        {project.key} — {project.name}
-      </h1>
-      <p>{project.description ?? 'No description yet.'}</p>
+      <PageHeader
+        title={`${project.key} — ${project.name}`}
+        description={project.description ?? 'No description yet.'}
+      />
+
       <p>Status: {project.status}</p>
 
       <h2>Issue summary</h2>
@@ -261,22 +266,29 @@ export default function ProjectDetailPage() {
         </select>
       </form>
 
-      {result && result.issues.length === 0 && <p>No issue matches these filters.</p>}
+      {/* Only the list waits, so changing a filter never blanks the whole page. */}
+      {issuesQuery.isPending && <LoadingState label="Loading issues…" />}
+
+      {issuesQuery.isError && (
+        <ErrorState error={issuesQuery.error} onRetry={() => void issuesQuery.refetch()} />
+      )}
+
+      {result && result.issues.length === 0 && (
+        <EmptyState
+          title="No issue matches these filters"
+          description="Clear a filter above, or create the first issue of this project."
+        />
+      )}
 
       {result && result.issues.length > 0 && (
         <ul>
           {result.issues.map((issue) => (
             <li key={issue.id}>
-              <Link
-                to={`/app/workspaces/${workspaceId}/projects/${projectId}/issues/${issue.id}`}
-              >
+              <Link to={`/app/workspaces/${workspaceId}/projects/${projectId}/issues/${issue.id}`}>
                 {issue.displayKey} {issue.title}
-              </Link>
-              <span>
-                {' '}
-                — {issue.status} — {issue.priority} —{' '}
-                {issue.assignee ? issue.assignee.name : 'Unassigned'}
-              </span>
+              </Link>{' '}
+              <StatusBadge status={issue.status} /> <PriorityBadge priority={issue.priority} />{' '}
+              <span>{issue.assignee ? issue.assignee.name : 'Unassigned'}</span>
             </li>
           ))}
         </ul>
@@ -324,7 +336,15 @@ export default function ProjectDetailPage() {
             </button>
           </form>
 
-          <button type="button" onClick={handleArchiveToggle} disabled={isBusy}>
+          <button
+            type="button"
+            disabled={isBusy}
+            onClick={() =>
+              updateMutation.mutate({
+                status: project.status === 'ARCHIVED' ? 'ACTIVE' : 'ARCHIVED',
+              })
+            }
+          >
             {project.status === 'ARCHIVED' ? 'Reactivate project' : 'Archive project'}
           </button>
 
@@ -334,7 +354,7 @@ export default function ProjectDetailPage() {
               <p role="alert">
                 Deleting this project also removes its sprints and issues. This cannot be undone.
               </p>
-              <button type="button" onClick={handleDelete} disabled={isBusy}>
+              <button type="button" onClick={() => deleteMutation.mutate()} disabled={isBusy}>
                 Confirm delete
               </button>
               <button type="button" onClick={() => setIsConfirmingDelete(false)} disabled={isBusy}>
@@ -350,6 +370,6 @@ export default function ProjectDetailPage() {
           {actionError && <p role="alert">{actionError}</p>}
         </>
       )}
-    </section>
+    </>
   );
 }

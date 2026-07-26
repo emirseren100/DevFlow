@@ -1,153 +1,119 @@
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 
-import { ApiError } from '../lib/apiClient';
-import type { AssignableRole, WorkspaceDetail, WorkspaceMember } from '../lib/workspaceApi';
+import Breadcrumbs from '../components/Breadcrumbs';
+import PageHeader from '../components/PageHeader';
+import { ErrorState, LoadingState, PermissionNotice } from '../components/states';
+import { errorMessage } from '../lib/apiClient';
+import { queryKeys } from '../lib/queryKeys';
 import {
-  addMember,
-  assignableRoles,
   canDeleteWorkspace,
   canManageWorkspace,
-  canRemoveMember,
   deleteWorkspace,
   getWorkspace,
-  listMembers,
-  removeMember,
   renameWorkspace,
-  updateMemberRole,
 } from '../lib/workspaceApi';
 
-function messageOf(error: unknown): string {
-  return error instanceof ApiError ? error.message : 'Something went wrong. Please try again.';
-}
-
+/**
+ * Workspace settings: the name and the destructive actions.
+ *
+ * Membership lives on its own page, so this screen only links to it instead of
+ * repeating the member list.
+ */
 export default function WorkspaceDetailPage() {
   const { workspaceId = '' } = useParams();
   const navigate = useNavigate();
-
-  const [workspace, setWorkspace] = useState<WorkspaceDetail | null>(null);
-  const [members, setMembers] = useState<WorkspaceMember[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
 
   const [name, setName] = useState('');
-  const [actionError, setActionError] = useState<string | null>(null);
-  const [isBusy, setIsBusy] = useState(false);
-
-  const [memberEmail, setMemberEmail] = useState('');
-  const [memberRole, setMemberRole] = useState<AssignableRole>('MEMBER');
   const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
 
-  // Both requests belong to the same screen, so they are sent together instead
-  // of one after the other.
+  const workspaceQuery = useQuery({
+    queryKey: queryKeys.workspace(workspaceId),
+    queryFn: ({ signal }) => getWorkspace(workspaceId, signal),
+  });
+
+  // The form starts from the server value and is only reset when the workspace
+  // itself changes, so a half-typed name is not overwritten by a refetch.
+  const loadedName = workspaceQuery.data?.name;
+
   useEffect(() => {
-    let active = true;
-
-    setIsLoading(true);
-    setLoadError(null);
-
-    Promise.all([getWorkspace(workspaceId), listMembers(workspaceId)])
-      .then(([detail, memberList]) => {
-        if (!active) return;
-
-        setWorkspace(detail);
-        setName(detail.name);
-        setMembers(memberList);
-      })
-      .catch((error: unknown) => {
-        if (active) setLoadError(messageOf(error));
-      })
-      .finally(() => {
-        if (active) setIsLoading(false);
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [workspaceId]);
-
-  /** Every mutating action shares the same busy flag and error slot. */
-  async function run(action: () => Promise<void>) {
-    setIsBusy(true);
-    setActionError(null);
-
-    try {
-      await action();
-    } catch (error) {
-      setActionError(messageOf(error));
-    } finally {
-      setIsBusy(false);
+    if (loadedName !== undefined) {
+      setName(loadedName);
     }
-  }
+  }, [loadedName, workspaceId]);
 
-  async function handleRename(event: FormEvent) {
-    event.preventDefault();
+  const renameMutation = useMutation({
+    mutationFn: (nextName: string) => renameWorkspace(workspaceId, nextName),
+    onSuccess: () => {
+      setActionError(null);
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.workspace(workspaceId),
+        exact: true,
+      });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.workspaceDashboard(workspaceId) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.workspaceList() });
+    },
+    onError: (error) => setActionError(errorMessage(error)),
+  });
 
-    await run(async () => {
-      const updated = await renameWorkspace(workspaceId, name);
-      setWorkspace(updated);
-    });
-  }
-
-  async function handleAddMember(event: FormEvent) {
-    event.preventDefault();
-
-    await run(async () => {
-      const created = await addMember(workspaceId, memberEmail, memberRole);
-      setMembers((current) => [...current, created]);
-      setMemberEmail('');
-    });
-  }
-
-  async function handleRoleChange(member: WorkspaceMember, role: AssignableRole) {
-    await run(async () => {
-      const updated = await updateMemberRole(workspaceId, member.id, role);
-      setMembers((current) =>
-        current.map((entry) => (entry.id === updated.id ? updated : entry)),
-      );
-    });
-  }
-
-  async function handleRemoveMember(member: WorkspaceMember) {
-    await run(async () => {
-      await removeMember(workspaceId, member.id);
-      setMembers((current) => current.filter((entry) => entry.id !== member.id));
-    });
-  }
-
-  async function handleDeleteWorkspace() {
-    await run(async () => {
-      await deleteWorkspace(workspaceId);
+  const deleteMutation = useMutation({
+    mutationFn: () => deleteWorkspace(workspaceId),
+    onSuccess: () => {
+      // The workspace and everything cached below it are gone for good.
+      queryClient.removeQueries({ queryKey: queryKeys.workspace(workspaceId) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.workspaceList() });
       navigate('/app/workspaces', { replace: true });
-    });
+    },
+    onError: (error) => setActionError(errorMessage(error)),
+  });
+
+  if (workspaceQuery.isPending) {
+    return <LoadingState label="Loading workspace…" />;
   }
 
-  if (isLoading) {
-    return <p role="status">Loading workspace…</p>;
+  if (workspaceQuery.isError) {
+    return (
+      <ErrorState error={workspaceQuery.error} onRetry={() => void workspaceQuery.refetch()} />
+    );
   }
 
-  if (loadError || !workspace) {
-    return <p role="alert">{loadError ?? 'Workspace not found.'}</p>;
-  }
-
+  const workspace = workspaceQuery.data;
   const canManage = canManageWorkspace(workspace.role);
+  const isBusy = renameMutation.isPending || deleteMutation.isPending;
+
+  function handleRename(event: FormEvent) {
+    event.preventDefault();
+    renameMutation.mutate(name);
+  }
 
   return (
-    <section>
-      <h1>{workspace.name}</h1>
+    <>
+      <Breadcrumbs
+        items={[
+          { label: 'Workspaces', to: '/app/workspaces' },
+          { label: workspace.name, to: `/app/workspaces/${workspaceId}/dashboard` },
+          { label: 'Settings' },
+        ]}
+      />
+
+      <PageHeader title={workspace.name} description={`Your role: ${workspace.role}`} />
+
       <p>Slug: {workspace.slug}</p>
-      <p>Your role: {workspace.role}</p>
       <p>
         Owner: {workspace.owner.name} ({workspace.owner.email})
       </p>
       <p>
-        <Link to={`/app/workspaces/${workspaceId}/projects`}>Projects</Link>
+        {workspace.memberCount} {workspace.memberCount === 1 ? 'member' : 'members'} —{' '}
+        <Link to={`/app/workspaces/${workspaceId}/members`}>Manage members</Link>
       </p>
 
       {actionError && <p role="alert">{actionError}</p>}
 
-      {canManage && (
+      {canManage ? (
         <form onSubmit={handleRename}>
           <h2>Rename workspace</h2>
 
@@ -166,76 +132,8 @@ export default function WorkspaceDetailPage() {
             Save name
           </button>
         </form>
-      )}
-
-      <h2>Members</h2>
-
-      <ul>
-        {members.map((member) => (
-          <li key={member.id}>
-            <span>
-              {member.name} ({member.email}) — {member.role}
-            </span>
-
-            {/* Only the owner may change roles, and never the owner's own. */}
-            {workspace.role === 'OWNER' && member.role !== 'OWNER' && (
-              <>
-                <label htmlFor={`role-${member.id}`}>Role for {member.name}</label>
-                <select
-                  id={`role-${member.id}`}
-                  value={member.role}
-                  disabled={isBusy}
-                  onChange={(event) =>
-                    handleRoleChange(member, event.target.value as AssignableRole)
-                  }
-                >
-                  <option value="MEMBER">MEMBER</option>
-                  <option value="ADMIN">ADMIN</option>
-                </select>
-              </>
-            )}
-
-            {canRemoveMember(workspace.role, member.role) && (
-              <button type="button" disabled={isBusy} onClick={() => handleRemoveMember(member)}>
-                Remove {member.name}
-              </button>
-            )}
-          </li>
-        ))}
-      </ul>
-
-      {canManage && (
-        <form onSubmit={handleAddMember}>
-          <h2>Add a member</h2>
-          <p>Only people who already have a DevFlow account can be added.</p>
-
-          <label htmlFor="member-email">Member email</label>
-          <input
-            id="member-email"
-            name="email"
-            type="email"
-            value={memberEmail}
-            onChange={(event) => setMemberEmail(event.target.value)}
-            required
-          />
-
-          <label htmlFor="member-role">Member role</label>
-          <select
-            id="member-role"
-            value={memberRole}
-            onChange={(event) => setMemberRole(event.target.value as AssignableRole)}
-          >
-            {assignableRoles(workspace.role).map((role) => (
-              <option key={role} value={role}>
-                {role}
-              </option>
-            ))}
-          </select>
-
-          <button type="submit" disabled={isBusy}>
-            Add member
-          </button>
-        </form>
+      ) : (
+        <PermissionNotice>Only an owner or an admin can rename this workspace.</PermissionNotice>
       )}
 
       {canDeleteWorkspace(workspace.role) && (
@@ -247,7 +145,7 @@ export default function WorkspaceDetailPage() {
               <p role="alert">
                 Deleting this workspace also removes its memberships and cannot be undone.
               </p>
-              <button type="button" disabled={isBusy} onClick={handleDeleteWorkspace}>
+              <button type="button" disabled={isBusy} onClick={() => deleteMutation.mutate()}>
                 Confirm delete
               </button>
               <button type="button" onClick={() => setIsConfirmingDelete(false)}>
@@ -261,6 +159,6 @@ export default function WorkspaceDetailPage() {
           )}
         </div>
       )}
-    </section>
+    </>
   );
 }

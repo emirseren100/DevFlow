@@ -18,6 +18,7 @@
     "test:comments": "vitest run src/test/comment.test.ts",
     "test:activities": "vitest run src/test/activity.test.ts",
     "test:kanban": "vitest run src/test/kanban.test.ts",
+    "test:dashboard": "vitest run src/test/dashboard.test.ts",
     "db:validate": "prisma validate",
     "db:format": "prisma format",
     "db:generate": "prisma generate",

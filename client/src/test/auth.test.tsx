@@ -114,7 +114,8 @@ describe('protected /app route', () => {
     mockApi({ '/api/auth/me': authenticated });
     renderApp('/app');
 
-    expect(await screen.findByText('Signed in as Ada Yilmaz')).toBeInTheDocument();
+    // The shell header carries the current user on every protected page.
+    expect(await screen.findByText('Ada Yilmaz')).toBeInTheDocument();
     expect(screen.getByText(USER.email)).toBeInTheDocument();
   });
 

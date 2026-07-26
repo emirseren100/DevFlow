@@ -87,7 +87,8 @@ Full phase details: [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Current Status
 
-Phase 6 — Comments, activity and the Kanban board is complete. What exists today:
+Phase 7 — Dashboard, application shell and frontend integration is complete.
+What exists today:
 
 - npm workspaces root with `client` and `server`
 - React + TypeScript client on port **5174**: working `/login` and `/register`
@@ -112,12 +113,20 @@ Phase 6 — Comments, activity and the Kanban board is complete. What exists tod
 - A Kanban board with five status columns, drag-and-drop through `@dnd-kit`, an
   accessible non-drag move control, and server-owned ordering inside one
   PostgreSQL transaction
-- 223 passing tests: 58 client tests and 165 server tests (the authentication,
-  workspace, project, sprint, issue, comment, activity and Kanban integration
-  tests need the dedicated test database)
+- One authenticated application shell around every protected page: brand link,
+  workspace switcher, workspace navigation, current user and sign out
+- A workspace dashboard at `/app/workspaces/:workspaceId/dashboard`, served by a
+  single aggregation endpoint
+- TanStack Query as the one server-state layer, with centralized query keys and
+  targeted invalidation after every mutation
+- Shared loading, empty and error states, including dedicated 403 and 404
+  experiences
+- 264 passing tests: 82 client tests and 182 server tests (the authentication,
+  workspace, project, sprint, issue, comment, activity, Kanban and dashboard
+  integration tests need the dedicated test database)
 
 Not built yet: realtime updates, notifications, attachments, labels, subtasks,
-the consolidated dashboard, the final UI, Docker and CI.
+the final visual design, Docker and CI.
 
 Current state at any time: [docs/PROJECT_STATE.md](docs/PROJECT_STATE.md).
 
@@ -505,6 +514,89 @@ reload. There are no notifications and no emails.
 ```bash
 curl -i -X PATCH http://localhost:4000/api/workspaces/<workspaceId>/projects/<projectId> -H "Content-Type: application/json" -b "devflow_session=<cookie>" -d "{\"name\":\"Hacked\"}"
 ```
+
+### The application shell, routing and the workspace dashboard
+
+Everything behind `/app` is drawn inside one shell (`client/src/layouts/AppShell.tsx`):
+the DevFlow brand, the workspace switcher, the workspace navigation, the current
+user and a sign out button. Pages render only their own content, so no screen
+repeats the frame around itself, and the page always has exactly one `<main>`
+landmark and one `<h1>`.
+
+**Authenticated routes**
+
+| Route | Page |
+|---|---|
+| `/app` | redirects to `/app/workspaces` |
+| `/app/workspaces` | the workspaces you belong to, plus the create form |
+| `/app/workspaces/:workspaceId` | redirects to that workspace's overview |
+| `/app/workspaces/:workspaceId/dashboard` | workspace overview (the dashboard) |
+| `/app/workspaces/:workspaceId/members` | member management |
+| `/app/workspaces/:workspaceId/settings` | rename and delete the workspace |
+| `/app/workspaces/:workspaceId/projects` | project list and create form |
+| `.../projects/:projectId` | project detail with URL issue filters |
+| `.../projects/:projectId/board` | Kanban board |
+| `.../projects/:projectId/activity` | project activity feed |
+| `.../projects/:projectId/issues/new` | new issue in that project |
+| `.../projects/:projectId/issues/:issueId` | issue detail, comments and history |
+
+The workspace switcher lists only the workspaces `GET /api/workspaces` returns
+for the signed-in user, so it cannot even name one they cannot open. Nothing
+about the selection is written to browser storage: the URL already says which
+workspace is open.
+
+**Dashboard endpoint**
+
+| Endpoint | Allowed | Purpose |
+|---|---|---|
+| `GET /api/workspaces/:workspaceId/dashboard` | every member | one aggregated overview of the workspace |
+
+It answers `401` without a session, `403` for a non-member and `404` for an
+unknown workspace, exactly like the other workspace routes. The response carries
+the workspace summary (member count, active and archived project counts, your
+role), the issue metrics (open, assigned to you, overdue, unassigned), the full
+status and priority distributions including zeros, about five recently updated
+issues and about eight recent activity rows. Counts are computed with Prisma
+`count` and `groupBy` in PostgreSQL, so the browser never downloads issues in
+order to count them, and no issue description ever reaches the dashboard.
+
+`DONE` counts as closed. An issue is overdue when its `dueDate` is before the
+**server's** current time and its status is not `DONE`; a date sent by the
+browser is never read. Timestamps stay ISO strings on the wire, and the client
+formats them for display.
+
+**TanStack Query**
+
+`@tanstack/react-query` is the only server-state layer. One `QueryClient` is
+created near the application root, with conservative defaults: no automatic
+retry, no refetch on window focus, and a 30-second `staleTime`. Every error
+state offers a visible **Try again** button instead, and a `401` clears the
+signed-in user so the route guard sends the browser to the login page.
+
+Every key comes from `client/src/lib/queryKeys.ts`; no component writes a key by
+hand. After a mutation only the affected keys are invalidated — adding a member
+refreshes the member list, the workspace and the dashboard, and a Kanban move
+refreshes the board plus, when the status actually changed, the issue, the
+project lists, the feeds and the dashboard metrics.
+
+Issue filters still live in the URL query string and are part of the query key,
+so back, forward, reload and a shared link all restore the same list.
+
+**Manual walk-through**
+
+1. Sign in as `ada@devflow.local` and land on `/app/workspaces`.
+2. Open a workspace: the URL becomes `.../dashboard` and the shell shows the
+   workspace switcher and the Overview / Projects / Members / Settings links.
+3. Compare the summary cards with the seed data, then follow a recent issue link
+   — it opens the nested issue detail of the right project.
+4. Create a project from **Projects** and go back to the overview: the active
+   project count has been refreshed.
+5. Move a card on the board and reload the dashboard: the status distribution
+   follows.
+6. Sign in as `ceyda@devflow.local` (a `MEMBER`): no **Create a project** action
+   and no **Settings** link, and the server still refuses the request itself.
+7. Narrow the window to about 390px: the navigation collapses behind the
+   **Menu** button, the cards wrap and the board scrolls sideways.
 
 ### Test database
 

@@ -1,81 +1,74 @@
-import { useEffect, useState } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useState } from 'react';
 import type { FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
-import { ApiError } from '../lib/apiClient';
-import type { WorkspaceSummary } from '../lib/workspaceApi';
-import { createWorkspace, listWorkspaces } from '../lib/workspaceApi';
-
-function messageOf(error: unknown): string {
-  return error instanceof ApiError ? error.message : 'Something went wrong. Please try again.';
-}
+import PageHeader from '../components/PageHeader';
+import { EmptyState, ErrorState, LoadingState } from '../components/states';
+import { useWorkspacesQuery } from '../hooks/useWorkspaces';
+import { errorMessage } from '../lib/apiClient';
+import { queryKeys } from '../lib/queryKeys';
+import { createWorkspace } from '../lib/workspaceApi';
 
 export default function WorkspaceListPage() {
   const navigate = useNavigate();
-  const [workspaces, setWorkspaces] = useState<WorkspaceSummary[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
 
   const [name, setName] = useState('');
-  const [isCreating, setIsCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
 
-  // One request on mount. The workspace list is server data, so it is kept in
-  // component state only and never written to localStorage.
-  useEffect(() => {
-    let active = true;
+  // The same query the shell's switcher uses, so opening this page does not
+  // fetch the list a second time.
+  const workspacesQuery = useWorkspacesQuery();
 
-    listWorkspaces()
-      .then((data) => {
-        if (active) setWorkspaces(data);
-      })
-      .catch((error: unknown) => {
-        if (active) setLoadError(messageOf(error));
-      })
-      .finally(() => {
-        if (active) setIsLoading(false);
-      });
-
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  async function handleCreate(event: FormEvent) {
-    event.preventDefault();
-    setIsCreating(true);
-    setCreateError(null);
-
-    try {
-      const workspace = await createWorkspace(name);
-
-      setWorkspaces((current) => [...current, workspace]);
+  const createMutation = useMutation({
+    mutationFn: (workspaceName: string) => createWorkspace(workspaceName),
+    onSuccess: (workspace) => {
       setName('');
-      navigate(`/app/workspaces/${workspace.id}`);
-    } catch (error) {
-      setCreateError(messageOf(error));
-    } finally {
-      setIsCreating(false);
-    }
+      setCreateError(null);
+      void queryClient.invalidateQueries({ queryKey: queryKeys.workspaceList() });
+      navigate(`/app/workspaces/${workspace.id}/dashboard`);
+    },
+    onError: (error) => setCreateError(errorMessage(error)),
+  });
+
+  function handleCreate(event: FormEvent) {
+    event.preventDefault();
+    createMutation.mutate(name);
   }
 
+  const workspaces = workspacesQuery.data ?? [];
+
   return (
-    <section>
-      <h1>Workspaces</h1>
+    <>
+      <PageHeader
+        title="Workspaces"
+        description="A workspace groups the projects, issues and people of one team."
+      />
 
-      {isLoading && <p role="status">Loading workspaces…</p>}
+      {workspacesQuery.isPending && <LoadingState label="Loading workspaces…" />}
 
-      {loadError && <p role="alert">{loadError}</p>}
+      {workspacesQuery.isError && (
+        <ErrorState
+          error={workspacesQuery.error}
+          onRetry={() => void workspacesQuery.refetch()}
+          backTo="/app"
+          backLabel="Back to the application"
+        />
+      )}
 
-      {!isLoading && !loadError && workspaces.length === 0 && (
-        <p>You do not belong to any workspace yet. Create your first one below.</p>
+      {workspacesQuery.isSuccess && workspaces.length === 0 && (
+        <EmptyState
+          title="You do not belong to any workspace yet"
+          description="Create your first one below, or ask a colleague to add you to theirs."
+        />
       )}
 
       {workspaces.length > 0 && (
         <ul>
           {workspaces.map((workspace) => (
             <li key={workspace.id}>
-              <Link to={`/app/workspaces/${workspace.id}`}>{workspace.name}</Link>
+              <Link to={`/app/workspaces/${workspace.id}/dashboard`}>{workspace.name}</Link>
               <span> — {workspace.role}</span>
               <span>
                 {' '}
@@ -102,10 +95,10 @@ export default function WorkspaceListPage() {
 
         {createError && <p role="alert">{createError}</p>}
 
-        <button type="submit" disabled={isCreating}>
-          {isCreating ? 'Creating…' : 'Create workspace'}
+        <button type="submit" disabled={createMutation.isPending}>
+          {createMutation.isPending ? 'Creating…' : 'Create workspace'}
         </button>
       </form>
-    </section>
+    </>
   );
 }

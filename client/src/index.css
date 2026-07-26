@@ -99,3 +99,280 @@ h1 {
 .health--unreachable {
   color: #b3261e;
 }
+
+/* ---------------------------------------------------------------------------
+   Authenticated application shell (Phase 7)
+
+   Structural layout only: what sits where and how it survives a narrow screen.
+   The visual identity is Phase 9. One breakpoint at 900px is enough here — the
+   sidebar either stands next to the content or collapses behind the menu
+   button in the header.
+   --------------------------------------------------------------------------- */
+
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.app-shell__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.75rem 1.5rem;
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.app-shell__brand {
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+.app-shell__user {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-left: auto;
+  font-size: 0.875rem;
+}
+
+.app-shell__user-email {
+  color: var(--color-muted);
+}
+
+/* Hidden on a wide screen, because the navigation is always visible there. */
+.app-shell__menu-toggle {
+  display: none;
+}
+
+.app-shell__body {
+  display: flex;
+  flex: 1;
+  align-items: flex-start;
+  gap: 1.5rem;
+  width: 100%;
+  max-width: 80rem;
+  margin: 0 auto;
+  padding: 1.5rem;
+}
+
+.app-shell__nav {
+  flex: 0 0 14rem;
+}
+
+.app-shell__main {
+  flex: 1;
+  min-width: 0;
+}
+
+.workspace-nav__title {
+  font-weight: 600;
+  margin-bottom: 0.25rem;
+}
+
+.workspace-nav ul,
+.switcher {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 1rem;
+}
+
+.workspace-nav li {
+  padding: 0.25rem 0;
+}
+
+.switcher label {
+  display: block;
+  font-size: 0.8125rem;
+  color: var(--color-muted);
+}
+
+.switcher select {
+  width: 100%;
+  margin-bottom: 0.5rem;
+}
+
+.breadcrumbs ol {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 0;
+  margin: 0 0 0.5rem;
+  list-style: none;
+  font-size: 0.875rem;
+}
+
+.breadcrumbs li + li::before {
+  content: '/ ';
+  color: var(--color-muted);
+}
+
+.page-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.page-header__description {
+  color: var(--color-muted);
+  margin: 0.25rem 0 0;
+}
+
+.page-header__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+/* Cards wrap on their own; no media query is needed for a grid like this. */
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: 0.75rem;
+  padding: 0;
+  margin: 0 0 1rem;
+  list-style: none;
+}
+
+.card {
+  padding: 0.75rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+}
+
+.card__label {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--color-muted);
+}
+
+.card__value {
+  margin: 0.25rem 0;
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+.distribution {
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.distribution li {
+  display: grid;
+  grid-template-columns: 7rem 1fr 3rem;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.125rem 0;
+}
+
+.distribution__bar {
+  display: block;
+  height: 0.75rem;
+  background: var(--color-border);
+  border-radius: 2px;
+}
+
+.distribution__bar > span {
+  display: block;
+  height: 100%;
+  background: var(--color-accent);
+  border-radius: 2px;
+}
+
+.distribution__value {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.recent-issues,
+.members,
+.activity {
+  padding: 0;
+  list-style: none;
+}
+
+.recent-issues li,
+.members li {
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.recent-issues__meta {
+  margin: 0.25rem 0 0;
+  font-size: 0.875rem;
+  color: var(--color-muted);
+}
+
+/* Every badge spells its value out, so colour is never the only signal. */
+.badge {
+  display: inline-block;
+  padding: 0.0625rem 0.375rem;
+  font-size: 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+}
+
+.state {
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-surface);
+}
+
+.state__title {
+  margin: 0 0 0.25rem;
+  font-weight: 600;
+}
+
+.state__detail,
+.muted {
+  color: var(--color-muted);
+  font-size: 0.875rem;
+}
+
+/* The five columns scroll sideways instead of collapsing into strips. */
+.board {
+  display: flex;
+  gap: 1rem;
+  overflow-x: auto;
+  padding-bottom: 0.5rem;
+}
+
+.board > section {
+  flex: 0 0 15rem;
+}
+
+@media (max-width: 900px) {
+  .app-shell__menu-toggle {
+    display: inline-block;
+  }
+
+  .app-shell__body {
+    flex-direction: column;
+    padding: 1rem;
+  }
+
+  /* Collapsed by default; the header button opens it. */
+  .app-shell__nav {
+    display: none;
+    flex: 1 1 auto;
+    width: 100%;
+  }
+
+  .app-shell__nav--open {
+    display: block;
+  }
+
+  .distribution li {
+    grid-template-columns: 6rem 1fr 2.5rem;
+  }
+}

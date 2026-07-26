@@ -432,6 +432,73 @@ reconnection, per-workspace authorization on every message and a much harder tes
 story. The MVP's value — correct, authorized, durable ordering — is already
 delivered by one transaction over HTTP, so realtime belongs to a later phase.
 
+## 9.3 The Application Shell and Server State (Phase 7)
+
+**Two layouts, not one.** `RootLayout` wraps the public site (home, login,
+register). `AppShell` wraps everything behind `/app`: the brand link, the
+workspace switcher, the workspace navigation, the current user and sign out. A
+page therefore never repeats the frame around itself, and the document always
+has exactly one `<main>` landmark and one `<h1>`.
+
+**Nested routing.** `/app` is one route with children, so the shell mounts once
+and only the outlet changes on navigation. `/app` redirects to
+`/app/workspaces`, and `/app/workspaces/:workspaceId` redirects to that
+workspace's `dashboard` — selecting a workspace means opening its overview.
+
+**Workspace context** is read from the path
+(`/app/workspaces/:workspaceId/...`) rather than from `useParams`, because the
+shell sits above the route that declares the parameter. The workspace itself is
+looked up in the cached `GET /api/workspaces` answer, so a nested page adds no
+request, and an id that is not in that list simply shows no workspace context.
+
+**API client flow.** One `apiRequest` in `client/src/lib/apiClient.ts` still
+sends `credentials: 'include'` and unwraps the shared `{ success, data }`
+envelope. It now also carries the HTTP status and the stable server code on the
+thrown `ApiError`, accepts an `AbortSignal`, and turns an unreachable server
+into the same typed error. Domain helpers (`workspaceApi`, `projectApi`,
+`collaborationApi`, `dashboardApi`) build the URLs, so no component
+concatenates a path or parses a response by hand.
+
+**Server state lives in TanStack Query.** One `QueryClient` is created near the
+root, inside `AuthProvider` so a `401` can clear the signed-in user. Defaults
+are conservative: no automatic retry, no refetch on focus, `staleTime` of 30
+seconds. Client state (form drafts, "is this dialog open") stays in `useState`;
+`AuthProvider` still owns the authentication lifecycle.
+
+**Query keys** all come from `client/src/lib/queryKeys.ts`. They read like the
+URL, from the widest scope to the narrowest, and separate `list` from `detail`
+so invalidating a list never discards the details under it. A scope key is the
+prefix of everything inside it, which is useful on purpose — and the reason
+`exact: true` and the `…Lists` helpers exist for the cases where it is too much.
+
+**Mutation invalidation** is targeted, never "invalidate everything": adding a
+member refreshes the members, the workspace and the dashboard; creating a
+project refreshes the project lists and the dashboard; a Kanban move refreshes
+the board and, only when the status actually changed, the issue, the project
+lists, the feeds and the dashboard metrics.
+
+**Dashboard aggregation.** `GET /api/workspaces/:workspaceId/dashboard` answers
+one screen with one request. Counts use Prisma `count` and `groupBy` filtered by
+`project: { workspaceId }`, so the numbers are computed in PostgreSQL and no
+issue list is downloaded to be counted; distributions are seeded with zeros so
+the client never has to guess a missing status. Overdue is decided by the
+server's clock (`dueDate < now` and status not `DONE`) — a browser date is never
+trusted. Recent activity reuses the feed's own mapper, so the metadata whitelist
+applies there too, and no issue description or comment body is ever selected.
+
+**Loading, error and empty boundaries.** `LoadingState`, `EmptyState` and
+`ErrorState` are shared, so no screen renders blank while it waits.
+`ErrorState` chooses its wording from the HTTP status: `403` explains the
+missing permission, `404` explains the missing resource, and neither offers a
+retry because the same request would fail the same way. Everything else offers
+**Try again**; the server code stays in the error object for troubleshooting and
+never appears as the user-facing message.
+
+**URL filter state.** The issue filters remain query-string state and are part
+of the query key, so back, forward, reload and a shared link restore the same
+list, each filter combination is cached separately, and a late answer for an old
+filter cannot overwrite the current one.
+
 ## 10. Docker Compose
 
 - Local development starts with Compose providing **PostgreSQL** (and optionally

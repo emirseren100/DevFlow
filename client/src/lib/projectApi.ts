@@ -1,4 +1,4 @@
-import { apiRequest } from './apiClient';
+import { apiRequest, get } from './apiClient';
 import type { WorkspaceRole } from './workspaceApi';
 
 export type ProjectStatus = 'ACTIVE' | 'ARCHIVED';
@@ -141,9 +141,11 @@ function toQuery(values: Record<string, string | number | boolean | undefined>):
 export function listProjects(
   workspaceId: string,
   options: { status?: string; search?: string } = {},
+  signal?: AbortSignal,
 ): Promise<ProjectSummary[]> {
   return apiRequest<{ projects: ProjectSummary[] }>(
     `${projectsPath(workspaceId)}${toQuery(options)}`,
+    get(signal),
   ).then((data) => data.projects);
 }
 
@@ -157,10 +159,15 @@ export function createProject(
   }).then((data) => data.project);
 }
 
-export function getProject(workspaceId: string, projectId: string): Promise<ProjectDetail> {
-  return apiRequest<{ project: ProjectDetail }>(projectPath(workspaceId, projectId)).then(
-    (data) => data.project,
-  );
+export function getProject(
+  workspaceId: string,
+  projectId: string,
+  signal?: AbortSignal,
+): Promise<ProjectDetail> {
+  return apiRequest<{ project: ProjectDetail }>(
+    projectPath(workspaceId, projectId),
+    get(signal),
+  ).then((data) => data.project);
 }
 
 export function updateProject(
@@ -182,9 +189,14 @@ export function deleteProject(workspaceId: string, projectId: string): Promise<v
   }).then(() => undefined);
 }
 
-export function listSprints(workspaceId: string, projectId: string): Promise<SprintSummary[]> {
+export function listSprints(
+  workspaceId: string,
+  projectId: string,
+  signal?: AbortSignal,
+): Promise<SprintSummary[]> {
   return apiRequest<{ sprints: SprintSummary[] }>(
     `${projectPath(workspaceId, projectId)}/sprints`,
+    get(signal),
   ).then((data) => data.sprints);
 }
 
@@ -192,9 +204,11 @@ export function listIssues(
   workspaceId: string,
   projectId: string,
   filters: IssueFilters = {},
+  signal?: AbortSignal,
 ): Promise<IssueListResult> {
   return apiRequest<IssueListResult>(
     `${projectPath(workspaceId, projectId)}/issues${toQuery({ ...filters })}`,
+    get(signal),
   );
 }
 
@@ -224,9 +238,11 @@ export function getIssue(
   workspaceId: string,
   projectId: string,
   issueId: string,
+  signal?: AbortSignal,
 ): Promise<IssueDetail> {
   return apiRequest<{ issue: IssueDetail }>(
     `${projectPath(workspaceId, projectId)}/issues/${issueId}`,
+    get(signal),
   ).then((data) => data.issue);
 }
 

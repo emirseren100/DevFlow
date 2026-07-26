@@ -1,9 +1,13 @@
-import { useEffect, useState } from 'react';
+import { useMutation, useQueries, useQueryClient } from '@tanstack/react-query';
+import { useState } from 'react';
 import type { FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 
-import { ApiError } from '../lib/apiClient';
-import type { IssuePriority, IssueStatus, IssueType, SprintSummary } from '../lib/projectApi';
+import Breadcrumbs from '../components/Breadcrumbs';
+import PageHeader from '../components/PageHeader';
+import { ErrorState, LoadingState } from '../components/states';
+import { ApiError, errorMessage } from '../lib/apiClient';
+import type { IssueInput, IssuePriority, IssueStatus, IssueType } from '../lib/projectApi';
 import {
   ISSUE_PRIORITIES,
   ISSUE_STATUSES,
@@ -11,21 +15,13 @@ import {
   createIssue,
   listSprints,
 } from '../lib/projectApi';
+import { queryKeys } from '../lib/queryKeys';
 import { listMembers } from '../lib/workspaceApi';
-import type { WorkspaceMember } from '../lib/workspaceApi';
-
-function messageOf(error: unknown): string {
-  return error instanceof ApiError ? error.message : 'Something went wrong. Please try again.';
-}
 
 export default function IssueCreatePage() {
   const { workspaceId = '', projectId = '' } = useParams();
   const navigate = useNavigate();
-
-  const [members, setMembers] = useState<WorkspaceMember[]>([]);
-  const [sprints, setSprints] = useState<SprintSummary[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
 
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -36,75 +32,99 @@ export default function IssueCreatePage() {
   const [sprintId, setSprintId] = useState('');
   const [dueDate, setDueDate] = useState('');
 
-  const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string[]>>({});
 
   // The two option lists are the only reason this page loads anything: an
   // assignee is picked from the real workspace members and a sprint from the
   // project in the URL, so no free-text id can ever be sent.
-  useEffect(() => {
-    let active = true;
+  const [membersQuery, sprintsQuery] = useQueries({
+    queries: [
+      {
+        queryKey: queryKeys.workspaceMembers(workspaceId),
+        queryFn: ({ signal }: { signal: AbortSignal }) => listMembers(workspaceId, signal),
+      },
+      {
+        queryKey: queryKeys.sprints(workspaceId, projectId),
+        queryFn: ({ signal }: { signal: AbortSignal }) =>
+          listSprints(workspaceId, projectId, signal),
+      },
+    ],
+  });
 
-    Promise.all([listMembers(workspaceId), listSprints(workspaceId, projectId)])
-      .then(([memberList, sprintList]) => {
-        if (!active) return;
-
-        setMembers(memberList);
-        setSprints(sprintList);
-      })
-      .catch((error: unknown) => {
-        if (active) setLoadError(messageOf(error));
-      })
-      .finally(() => {
-        if (active) setIsLoading(false);
+  const createMutation = useMutation({
+    mutationFn: (input: IssueInput) => createIssue(workspaceId, projectId, input),
+    onSuccess: (issue) => {
+      // A new issue shows up in the lists, the board, the project summary, the
+      // feeds and the workspace metrics.
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.issueLists(workspaceId, projectId),
       });
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.project(workspaceId, projectId),
+        exact: true,
+      });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.board(workspaceId, projectId) });
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.projectActivity(workspaceId, projectId),
+      });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.workspaceDashboard(workspaceId) });
 
-    return () => {
-      active = false;
-    };
-  }, [workspaceId, projectId]);
+      navigate(`/app/workspaces/${workspaceId}/projects/${projectId}/issues/${issue.id}`);
+    },
+    onError: (error) => {
+      setSaveError(errorMessage(error));
+      setFieldErrors(error instanceof ApiError ? error.fieldErrors : {});
+    },
+  });
 
-  async function handleSubmit(event: FormEvent) {
+  const members = membersQuery.data ?? [];
+  const sprints = sprintsQuery.data ?? [];
+
+  function handleSubmit(event: FormEvent) {
     event.preventDefault();
-    setIsSaving(true);
     setSaveError(null);
     setFieldErrors({});
 
-    try {
-      const issue = await createIssue(workspaceId, projectId, {
-        title,
-        type,
-        priority,
-        status,
-        ...(description ? { description } : {}),
-        ...(assigneeId ? { assigneeId } : {}),
-        ...(sprintId ? { sprintId } : {}),
-        ...(dueDate ? { dueDate } : {}),
-      });
-
-      navigate(`/app/workspaces/${workspaceId}/projects/${projectId}/issues/${issue.id}`);
-    } catch (error) {
-      setSaveError(messageOf(error));
-
-      if (error instanceof ApiError) {
-        setFieldErrors(error.fieldErrors);
-      }
-    } finally {
-      setIsSaving(false);
-    }
+    createMutation.mutate({
+      title,
+      type,
+      priority,
+      status,
+      ...(description ? { description } : {}),
+      ...(assigneeId ? { assigneeId } : {}),
+      ...(sprintId ? { sprintId } : {}),
+      ...(dueDate ? { dueDate } : {}),
+    });
   }
 
   return (
-    <section>
+    <>
+      <Breadcrumbs
+        items={[
+          { label: 'Workspaces', to: '/app/workspaces' },
+          { label: 'Projects', to: `/app/workspaces/${workspaceId}/projects` },
+          { label: 'Project', to: `/app/workspaces/${workspaceId}/projects/${projectId}` },
+          { label: 'New issue' },
+        ]}
+      />
+
+      <PageHeader
+        title="New issue"
+        description="The issue belongs to the project in the address bar, so there is no project to pick here."
+      />
+
       <p>
         <Link to={`/app/workspaces/${workspaceId}/projects/${projectId}`}>Back to the project</Link>
       </p>
 
-      <h1>New issue</h1>
+      {(membersQuery.isPending || sprintsQuery.isPending) && (
+        <LoadingState label="Loading form…" />
+      )}
 
-      {isLoading && <p role="status">Loading form…</p>}
-      {loadError && <p role="alert">{loadError}</p>}
+      {membersQuery.isError && (
+        <ErrorState error={membersQuery.error} onRetry={() => void membersQuery.refetch()} />
+      )}
 
       <form onSubmit={handleSubmit}>
         <label htmlFor="issue-title">Title</label>
@@ -203,10 +223,10 @@ export default function IssueCreatePage() {
 
         {saveError && <p role="alert">{saveError}</p>}
 
-        <button type="submit" disabled={isSaving}>
-          {isSaving ? 'Creating…' : 'Create issue'}
+        <button type="submit" disabled={createMutation.isPending}>
+          {createMutation.isPending ? 'Creating…' : 'Create issue'}
         </button>
       </form>
-    </section>
+    </>
   );
 }

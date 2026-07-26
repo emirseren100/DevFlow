@@ -1,4 +1,4 @@
-import { apiRequest } from './apiClient';
+import { apiRequest, get } from './apiClient';
 import type {
   IssuePriority,
   IssueStatus,
@@ -86,9 +86,11 @@ export function listComments(
   workspaceId: string,
   projectId: string,
   issueId: string,
+  signal?: AbortSignal,
 ): Promise<Comment[]> {
   return apiRequest<{ comments: Comment[] }>(
     `${issuePath(workspaceId, projectId, issueId)}/comments`,
+    get(signal),
   ).then((data) => data.comments);
 }
 
@@ -143,9 +145,11 @@ export function listProjectActivities(
   projectId: string,
   page = 1,
   limit?: number,
+  signal?: AbortSignal,
 ): Promise<ActivityListResult> {
   return apiRequest<ActivityListResult>(
     `/workspaces/${workspaceId}/projects/${projectId}/activities${pageQuery(page, limit)}`,
+    get(signal),
   );
 }
 
@@ -155,15 +159,22 @@ export function listIssueActivities(
   issueId: string,
   page = 1,
   limit?: number,
+  signal?: AbortSignal,
 ): Promise<ActivityListResult> {
   return apiRequest<ActivityListResult>(
     `${issuePath(workspaceId, projectId, issueId)}/activities${pageQuery(page, limit)}`,
+    get(signal),
   );
 }
 
-export function getBoard(workspaceId: string, projectId: string): Promise<Board> {
+export function getBoard(
+  workspaceId: string,
+  projectId: string,
+  signal?: AbortSignal,
+): Promise<Board> {
   return apiRequest<{ board: Board }>(
     `/workspaces/${workspaceId}/projects/${projectId}/board`,
+    get(signal),
   ).then((data) => data.board);
 }
 

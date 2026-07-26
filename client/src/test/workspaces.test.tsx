@@ -70,21 +70,43 @@ function mockApi(handlers: Record<string, Handler>) {
 
 const authenticated = ok({ user: USER });
 
+/** An empty but well-formed dashboard, for the routes that redirect onto it. */
+function dashboard(role: 'OWNER' | 'ADMIN' | 'MEMBER') {
+  return ok({
+    dashboard: {
+      workspace: {
+        ...WORKSPACE,
+        role,
+        activeProjectCount: 0,
+        archivedProjectCount: 0,
+      },
+      issueMetrics: { openIssues: 0, assignedToMe: 0, overdueIssues: 0, unassignedIssues: 0 },
+      statusDistribution: { BACKLOG: 0, TODO: 0, IN_PROGRESS: 0, IN_REVIEW: 0, DONE: 0 },
+      priorityDistribution: { LOW: 0, MEDIUM: 0, HIGH: 0, URGENT: 0 },
+      recentIssues: [],
+      recentActivity: [],
+      generatedAt: '2026-07-26T12:00:00.000Z',
+    },
+  });
+}
+
+/** Handlers for one workspace seen with the given role. */
+function workspaceHandlers(role: 'OWNER' | 'ADMIN' | 'MEMBER'): Record<string, Handler> {
+  return {
+    'GET /api/auth/me': authenticated,
+    'GET /api/workspaces': ok({ workspaces: [{ ...WORKSPACE, role }] }),
+    'GET /api/workspaces/w1': ok({ workspace: { ...WORKSPACE, role } }),
+    'GET /api/workspaces/w1/members': ok({ members: [OWNER_MEMBER, PLAIN_MEMBER] }),
+    'GET /api/workspaces/w1/dashboard': dashboard(role),
+  };
+}
+
 function renderApp(path: string) {
   return render(
     <MemoryRouter initialEntries={[path]}>
       <App />
     </MemoryRouter>,
   );
-}
-
-/** Handlers for a workspace detail screen seen with the given role. */
-function detailHandlers(role: 'OWNER' | 'ADMIN' | 'MEMBER'): Record<string, Handler> {
-  return {
-    'GET /api/auth/me': authenticated,
-    'GET /api/workspaces/w1': ok({ workspace: { ...WORKSPACE, role } }),
-    'GET /api/workspaces/w1/members': ok({ members: [OWNER_MEMBER, PLAIN_MEMBER] }),
-  };
 }
 
 afterEach(() => {
@@ -100,7 +122,8 @@ describe('workspace list page', () => {
     });
     renderApp('/app/workspaces');
 
-    expect(await screen.findByText('Loading workspaces…')).toBeInTheDocument();
+    // The shell switcher and the page both wait on the same request.
+    expect((await screen.findAllByText('Loading workspaces…')).length).toBeGreaterThan(0);
   });
 
   it('shows an empty state when the user belongs to no workspace', async () => {
@@ -134,18 +157,17 @@ describe('workspace list page', () => {
 
     expect(within(item).getByRole('link', { name: 'Acme Team' })).toHaveAttribute(
       'href',
-      '/app/workspaces/w1',
+      '/app/workspaces/w1/dashboard',
     );
     expect(item).toHaveTextContent('OWNER');
     expect(item).toHaveTextContent('2 members');
   });
 
-  it('creates a workspace and opens its detail page', async () => {
+  it('creates a workspace and opens its overview', async () => {
     mockApi({
-      'GET /api/auth/me': authenticated,
+      ...workspaceHandlers('OWNER'),
       'GET /api/workspaces': ok({ workspaces: [] }),
       'POST /api/workspaces': ok({ workspace: WORKSPACE }),
-      ...detailHandlers('OWNER'),
     });
     renderApp('/app/workspaces');
 
@@ -158,10 +180,10 @@ describe('workspace list page', () => {
   });
 });
 
-describe('workspace detail page', () => {
-  it('renders the workspace, the owner and the members', async () => {
-    mockApi(detailHandlers('OWNER'));
-    renderApp('/app/workspaces/w1');
+describe('workspace settings page', () => {
+  it('renders the workspace and its owner', async () => {
+    mockApi(workspaceHandlers('OWNER'));
+    renderApp('/app/workspaces/w1/settings');
 
     expect(
       await screen.findByRole('heading', { level: 1, name: 'Acme Team' }),
@@ -169,86 +191,42 @@ describe('workspace detail page', () => {
     expect(screen.getByText('Slug: acme-team')).toBeInTheDocument();
     expect(screen.getByText('Your role: OWNER')).toBeInTheDocument();
     expect(screen.getByText(`Owner: ${USER.name} (${USER.email})`)).toBeInTheDocument();
-    expect(screen.getByText(/Kerem Demir \(kerem@devflow\.local\)/)).toBeInTheDocument();
   });
 
   it('hides management controls from a plain member', async () => {
-    mockApi(detailHandlers('MEMBER'));
-    renderApp('/app/workspaces/w1');
+    mockApi(workspaceHandlers('MEMBER'));
+    renderApp('/app/workspaces/w1/settings');
 
     await screen.findByRole('heading', { level: 1, name: 'Acme Team' });
 
     expect(screen.queryByRole('button', { name: 'Save name' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Add member' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Delete workspace' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /^Remove/ })).not.toBeInTheDocument();
   });
 
-  it('lets an admin rename and add members but not delete the workspace', async () => {
-    mockApi(detailHandlers('ADMIN'));
-    renderApp('/app/workspaces/w1');
+  it('lets an admin rename but not delete the workspace', async () => {
+    mockApi(workspaceHandlers('ADMIN'));
+    renderApp('/app/workspaces/w1/settings');
 
     await screen.findByRole('heading', { level: 1, name: 'Acme Team' });
 
     expect(screen.getByRole('button', { name: 'Save name' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Add member' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Delete workspace' })).not.toBeInTheDocument();
-    // An admin may only hand out MEMBER, so ADMIN is not offered.
-    expect(
-      within(screen.getByLabelText('Member role')).queryByRole('option', { name: 'ADMIN' }),
-    ).not.toBeInTheDocument();
-  });
-
-  it('adds a member and shows them in the list', async () => {
-    mockApi({
-      ...detailHandlers('OWNER'),
-      'POST /api/workspaces/w1/members': ok({
-        member: {
-          id: 'm3',
-          userId: 'u3',
-          name: 'Selin Kaya',
-          email: 'selin@devflow.local',
-          role: 'MEMBER',
-          joinedAt: '2026-07-03T00:00:00.000Z',
-        },
-      }),
-    });
-    renderApp('/app/workspaces/w1');
-
-    await userEvent.type(await screen.findByLabelText('Member email'), 'selin@devflow.local');
-    await userEvent.click(screen.getByRole('button', { name: 'Add member' }));
-
-    expect(
-      await screen.findByText(/Selin Kaya \(selin@devflow\.local\)/),
-    ).toBeInTheDocument();
-  });
-
-  it('shows the server error when the email belongs to no account', async () => {
-    mockApi({
-      ...detailHandlers('OWNER'),
-      'POST /api/workspaces/w1/members': failure('USER_NOT_FOUND', 404),
-    });
-    renderApp('/app/workspaces/w1');
-
-    await userEvent.type(await screen.findByLabelText('Member email'), 'nobody@devflow.local');
-    await userEvent.click(screen.getByRole('button', { name: 'Add member' }));
-
-    expect(await screen.findByRole('alert')).toHaveTextContent('USER_NOT_FOUND');
   });
 
   it('asks for confirmation before deleting the workspace', async () => {
     const fetchMock = mockApi({
-      ...detailHandlers('OWNER'),
+      ...workspaceHandlers('OWNER'),
       'DELETE /api/workspaces/w1': ok({ deleted: true }),
-      'GET /api/workspaces': ok({ workspaces: [] }),
     });
-    renderApp('/app/workspaces/w1');
+    renderApp('/app/workspaces/w1/settings');
 
     await userEvent.click(await screen.findByRole('button', { name: 'Delete workspace' }));
 
     expect(screen.getByRole('alert')).toHaveTextContent('cannot be undone');
     expect(
-      fetchMock.mock.calls.some(([, init]) => (init as RequestInit | undefined)?.method === 'DELETE'),
+      fetchMock.mock.calls.some(
+        ([, init]) => (init as RequestInit | undefined)?.method === 'DELETE',
+      ),
     ).toBe(false);
 
     await userEvent.click(screen.getByRole('button', { name: 'Confirm delete' }));
@@ -256,5 +234,80 @@ describe('workspace detail page', () => {
     await waitFor(() => {
       expect(screen.getByRole('heading', { level: 1, name: 'Workspaces' })).toBeInTheDocument();
     });
+  });
+});
+
+describe('workspace members page', () => {
+  it('renders the members of the workspace', async () => {
+    mockApi(workspaceHandlers('OWNER'));
+    renderApp('/app/workspaces/w1/members');
+
+    expect(await screen.findByRole('heading', { level: 1, name: 'Members' })).toBeInTheDocument();
+    expect(screen.getByText(/Kerem Demir \(kerem@devflow\.local\)/)).toBeInTheDocument();
+  });
+
+  it('hides member management from a plain member', async () => {
+    mockApi(workspaceHandlers('MEMBER'));
+    renderApp('/app/workspaces/w1/members');
+
+    await screen.findByRole('heading', { level: 1, name: 'Members' });
+
+    expect(screen.queryByRole('button', { name: 'Add member' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Remove/ })).not.toBeInTheDocument();
+    expect(screen.getByText(/Only an owner or an admin can add or remove/i)).toBeInTheDocument();
+  });
+
+  it('offers an admin only the MEMBER role', async () => {
+    mockApi(workspaceHandlers('ADMIN'));
+    renderApp('/app/workspaces/w1/members');
+
+    await screen.findByRole('heading', { level: 1, name: 'Members' });
+
+    expect(screen.getByRole('button', { name: 'Add member' })).toBeInTheDocument();
+    expect(
+      within(screen.getByLabelText('Member role')).queryByRole('option', { name: 'ADMIN' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('adds a member and shows the refreshed list', async () => {
+    let members = [OWNER_MEMBER, PLAIN_MEMBER];
+    const created = {
+      id: 'm3',
+      userId: 'u3',
+      name: 'Selin Kaya',
+      email: 'selin@devflow.local',
+      role: 'MEMBER',
+      joinedAt: '2026-07-03T00:00:00.000Z',
+    };
+
+    mockApi({
+      ...workspaceHandlers('OWNER'),
+      'GET /api/workspaces/w1/members': () =>
+        jsonResponse({ success: true, data: { members } }),
+      'POST /api/workspaces/w1/members': () => {
+        members = [...members, created];
+
+        return jsonResponse({ success: true, data: { member: created } });
+      },
+    });
+    renderApp('/app/workspaces/w1/members');
+
+    await userEvent.type(await screen.findByLabelText('Member email'), 'selin@devflow.local');
+    await userEvent.click(screen.getByRole('button', { name: 'Add member' }));
+
+    expect(await screen.findByText(/Selin Kaya \(selin@devflow\.local\)/)).toBeInTheDocument();
+  });
+
+  it('shows the server error when the email belongs to no account', async () => {
+    mockApi({
+      ...workspaceHandlers('OWNER'),
+      'POST /api/workspaces/w1/members': failure('USER_NOT_FOUND', 404),
+    });
+    renderApp('/app/workspaces/w1/members');
+
+    await userEvent.type(await screen.findByLabelText('Member email'), 'nobody@devflow.local');
+    await userEvent.click(screen.getByRole('button', { name: 'Add member' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('USER_NOT_FOUND');
   });
 });
