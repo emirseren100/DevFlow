@@ -235,3 +235,95 @@ null, and anything pointing at a user is restricted so accounts cannot be
 deleted out from under real work. Schema changes go through committed migration
 files, and there is a small idempotent seed plus a read-only check script so any
 developer can confirm their database is set up correctly in one command.
+
+## Phase 3 — Authentication
+
+**What I learned:**
+
+- Hashing vs encryption — encryption is two-way: with the key you get the
+  original back. Hashing is one-way: there is no "unhash". Passwords are hashed
+  precisely because nobody, including us, should ever be able to read them back;
+  we only check whether a new attempt hashes to the same value.
+- Argon2id — a *slow on purpose* password hash. It deliberately burns memory and
+  CPU, so an attacker with a stolen database can only try a few thousand guesses
+  a second instead of billions. The `id` variant mixes the two Argon2 modes to
+  resist both GPU cracking and side-channel attacks. It is today's default
+  recommendation for passwords.
+- Session tokens — after login the server hands the browser a long random
+  string. It is *opaque*: it means nothing by itself, it is just a lookup key
+  for a row in the `sessions` table. Nothing about the user is encoded in it, so
+  nothing can be read out of it or faked into it.
+- Token hashing — the session table stores only `SHA-256(token)`. Whoever reads
+  the table sees hashes, and a hash cannot be sent as a cookie to log in. Fast
+  SHA-256 is right here, unlike for passwords, because the input is already 32
+  random bytes: there is nothing to guess, so slowness would buy nothing and
+  would cost time on every request.
+- HTTP-only cookies — `httpOnly` tells the browser "store this, send it with
+  requests, but never expose it to `document.cookie`". Malicious injected
+  JavaScript therefore cannot read the session, which is the exact weakness of
+  keeping a token in `localStorage`.
+- SameSite and Secure — `SameSite=Lax` stops the browser from attaching the
+  cookie to requests coming from other sites, which blocks the classic CSRF
+  shape. `Secure` means "only over HTTPS"; it is enabled in production only, so
+  plain `http://localhost` still works in development.
+- Authentication vs authorization — authentication is *who are you*
+  (a valid session), authorization is *are you allowed to do this*
+  (workspace membership and role). Phase 3 implemented only the first.
+- 401 vs 403 — `401 Unauthorized` really means *unauthenticated*: log in and try
+  again. `403 Forbidden` means we know exactly who you are and the answer is
+  still no. Sending 403 for a missing session would tell the client to stop
+  trying instead of showing a login form.
+- Protected routes — the client guard is only about user experience: it decides
+  whether to show a spinner, the page, or a redirect to `/login`. It is not
+  security. Anyone can edit the JavaScript in their own browser, so the real
+  check is `requireAuth` on the server, on every request.
+- Database-backed sessions — because each session is a row, logging out deletes
+  it and the very next request is rejected. A signed token like a JWT cannot be
+  taken back before it expires without adding a blocklist — which is a database
+  lookup again, just with more steps.
+- Test database isolation — the auth tests create and delete real rows, so they
+  need their own database. `server/.env.test` points at one whose name contains
+  `devflow_test`, and the setup refuses to run if it does not, so a wrong URL
+  cannot delete development data.
+
+**Files understood:**
+- `server/src/modules/auth/auth.service.ts` — Argon2id hashing, token
+  generation, SHA-256 storage, cookie options.
+- `server/src/modules/auth/auth.middleware.ts` — `attachSession` reads and
+  validates the cookie, `requireAuth` turns a missing session into `401`.
+- `server/src/modules/auth/auth.routes.ts` — the four endpoints and the Zod to
+  field-errors translation.
+- `client/src/auth/AuthProvider.tsx` — one `GET /api/auth/me` on mount restores
+  the session; `client/src/auth/RequireAuth.tsx` guards `/app`.
+- `server/prisma/testDbUrl.ts` — the safety guard that refuses any database
+  whose URL does not name `devflow_test`.
+
+**Problems solved:**
+- The first design instinct was a `passwordHash` column on `User`. Splitting it
+  into a `PasswordCredential` table means a routine user query cannot leak the
+  hash, and the column is never nullable-but-really-required.
+- Login could leak which emails exist, through the message *and* through timing
+  (no user = no hashing = a fast answer). Fixed with one shared error message
+  and a dummy hash verification for unknown emails.
+- Prisma 7 moved `--shadow-database-url` out of `migrate diff` into
+  `prisma.config.ts`, and the migrations folder needed a `migration_lock.toml`
+  before `--from-migrations` would work.
+- A second `prisma dev` server never finished starting on this machine, so the
+  test database is an isolated PostgreSQL **schema** (`devflow_test`) on the
+  same disposable server. Different schema, different tables, same guard.
+- Adding the auth provider broke a Phase 1 test that expected `/login` to render
+  synchronously; it now waits for the session check, which is what a user sees.
+
+**Interview explanation:**
+This phase added email and password authentication with server-side sessions.
+Passwords are hashed with Argon2id and kept in their own table, away from the
+profile data. On login the server generates 32 random bytes as an opaque session
+token, stores only its SHA-256 hash in a `sessions` row, and returns the raw
+token in an HTTP-only, SameSite=Lax cookie — so the browser sends it
+automatically and page JavaScript can never read it. Every protected request
+hashes the incoming cookie, looks up the session, rejects it if it has expired,
+and attaches only the safe user fields. Because sessions are rows, logout is a
+delete and takes effect immediately, which is the main thing a JWT cannot do.
+The failure message for a wrong password and an unknown email is identical, so
+the API does not reveal who has an account. It is covered by integration tests
+against a dedicated test database that the setup refuses to run without.

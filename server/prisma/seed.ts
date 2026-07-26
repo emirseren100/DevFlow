@@ -1,3 +1,5 @@
+import { Algorithm, hash as argonHash } from '@node-rs/argon2';
+
 import { prisma } from '../src/lib/prisma.js';
 
 /**
@@ -7,6 +9,12 @@ import { prisma } from '../src/lib/prisma.js';
  * running the seed twice updates the same rows instead of creating duplicates.
  * All identities are fictional and use `.local` addresses.
  */
+
+/**
+ * Shared password for every seeded account. Local development only: these
+ * accounts and this password must never exist in a deployed environment.
+ */
+const SEED_PASSWORD = 'DevFlow123!';
 
 const users = [
   { id: 'seed_user_ada', email: 'ada@devflow.local', name: 'Ada Yilmaz' },
@@ -265,6 +273,18 @@ async function main(): Promise<void> {
     });
   }
 
+  // One credential row per seeded user. Hashed on every run, but upserted on a
+  // fixed id, so repeated seeding never creates a second credential.
+  for (const user of users) {
+    const passwordHash = await argonHash(SEED_PASSWORD, { algorithm: Algorithm.Argon2id });
+
+    await prisma.passwordCredential.upsert({
+      where: { userId: user.id },
+      update: { passwordHash },
+      create: { id: `seed_cred_${user.id}`, userId: user.id, passwordHash },
+    });
+  }
+
   await prisma.workspace.upsert({
     where: { id: workspace.id },
     update: { name: workspace.name, slug: workspace.slug, ownerId: workspace.ownerId },
@@ -347,8 +367,9 @@ async function main(): Promise<void> {
   }
 
   console.log(
-    `Seed complete: ${users.length} users, ${projects.length} projects, ` +
-      `${sprints.length} sprints, ${issues.length} issues, ${comments.length} comments.`,
+    `Seed complete: ${users.length} users (with development password credentials), ` +
+      `${projects.length} projects, ${sprints.length} sprints, ${issues.length} issues, ` +
+      `${comments.length} comments. No login sessions are seeded.`,
   );
 }
 

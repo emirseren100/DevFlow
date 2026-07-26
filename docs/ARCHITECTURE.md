@@ -88,6 +88,57 @@ GET    /api/issues/:issueId/activity
 - An `requireAuth` middleware resolves the session to a `req.user` and returns
   `401` when it cannot.
 
+### 4.1 As implemented in Phase 3
+
+Server module: `server/src/modules/auth/` — `auth.routes.ts` (HTTP),
+`auth.schemas.ts` (Zod), `auth.service.ts` (passwords and sessions),
+`auth.middleware.ts` (`attachSession`, `requireAuth`), `auth.types.ts`
+(`SafeUser` and the Express request augmentation).
+
+**Registration** — `POST /api/auth/register` validates the body with Zod, lowercases
+and trims the email, rejects an existing email with `409 EMAIL_IN_USE`, hashes the
+password with **Argon2id**, then creates the `User` row and its `PasswordCredential`
+row **in one transaction** so a user can never exist without a password. A session is
+created and the cookie is set, so registering signs you in.
+
+**Login** — `POST /api/auth/login` looks the user up by normalized email and verifies
+the Argon2id hash. An unknown email and a wrong password produce exactly the same
+`401 INVALID_CREDENTIALS` / "Invalid email or password.", and an unknown email is still
+verified against a dummy hash, so neither the message nor the timing reveals whether an
+account exists.
+
+**Opaque session tokens** — a session token is 32 random bytes from
+`crypto.randomBytes`, base64url encoded. It is *opaque*: it carries no data, so nothing
+can be read out of it and nothing can be forged into it. The database stores only its
+**SHA-256 hash** in `Session.tokenHash`.
+
+**Why the raw token is never stored** — anyone who reads the `sessions` table (a leaked
+dump, a backup, an SQL-injection bug) would otherwise hold working session tokens for
+every logged-in user. Hashes are useless for logging in: a request is authenticated by
+hashing the incoming cookie value and looking for that hash. SHA-256 is the right
+choice here — not Argon2 — because the input is already 32 random bytes and cannot be
+brute-forced; Argon2's deliberate slowness is only needed for human-chosen passwords.
+
+**Cookie** — `devflow_session`, `httpOnly` (page JavaScript cannot read it, so an XSS
+bug cannot steal it), `sameSite: "lax"` (not sent on cross-site POSTs), `secure` only in
+production (so plain `http://localhost` still works), `path: "/"`, and a `maxAge`
+matching `SESSION_TTL_DAYS`. No cookie `domain` is set in development.
+
+**Reading a session** — `attachSession` hashes the cookie value, loads the matching
+`Session` with only the safe user columns, and treats an expired row as no session at
+all, deleting it on the way out. `requireAuth` then answers `401 UNAUTHENTICATED` when
+no user was attached. Only `SafeUser` (`id`, `name`, `email`) is ever attached to the
+request or returned.
+
+**Logout** — deletes the session row and clears the cookie. It succeeds even when the
+cookie is missing or already invalid, so logging out twice is not an error.
+
+**Client session restoration** — `AuthProvider` calls `GET /api/auth/me` once on mount.
+The browser attaches the cookie by itself, so "am I still logged in after a refresh?" is
+a single server question and the client never holds a token. `RequireAuth` renders a
+loading state while that call is pending, then either shows the route or redirects to
+`/login`; `RedirectIfAuthenticated` does the reverse for `/login` and `/register`.
+
 ## 5. Authorization
 
 Two layers, always on the server:
@@ -103,6 +154,12 @@ Model:
 - Ownership-sensitive actions (delete workspace, remove member, change roles)
   require `OWNER`/`ADMIN`.
 - Never rely on an ID being unguessable. Every request re-checks membership.
+
+Phase 3 built **only** the authentication half: `requireAuth` answers "is this a real,
+unexpired session?" and nothing more. Workspace roles are already in the database but no
+endpoint reads them yet; the authorization half (`403`, membership and role checks)
+arrives with the workspace endpoints in Phase 4. Keeping the two apart means the role
+rules will live in one place instead of being scattered through session handling.
 
 ## 6. Zod Validation Boundaries
 
@@ -237,8 +294,12 @@ Error:
 - Each side has its own `.env`, loaded from `client/` and `server/`.
 - `.env` is git-ignored; a committed `.env.example` (added in Phase 1) lists
   every required key with a safe placeholder value.
-- Server keys (planned): `DATABASE_URL`, `SESSION_SECRET`, `PORT`,
-  `NODE_ENV`, `CLIENT_ORIGIN`.
+- Server keys: `DATABASE_URL`, `PORT`, `NODE_ENV`, `CLIENT_ORIGIN`,
+  `SESSION_COOKIE_NAME`, `SESSION_TTL_DAYS`. There is no `SESSION_SECRET`:
+  sessions are random tokens looked up in the database, not signed data, so
+  there is nothing to sign.
+- `server/.env.test` holds the dedicated test database URL and is git-ignored
+  like `.env`.
 - Client keys must be prefixed `VITE_` to be exposed by Vite — and therefore
   must never contain a secret, because they are bundled into public JavaScript.
 - The server validates its environment with Zod at startup and fails fast.

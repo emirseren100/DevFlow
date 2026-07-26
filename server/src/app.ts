@@ -1,9 +1,11 @@
+import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import express from 'express';
 
 import { config } from './config.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { notFound } from './middleware/notFound.js';
+import { authRouter } from './modules/auth/auth.routes.js';
 import { healthRouter } from './routes/health.js';
 
 /**
@@ -13,11 +15,15 @@ import { healthRouter } from './routes/health.js';
 export function createApp() {
   const app = express();
 
-  // credentials is already enabled so the Phase 3 session cookie works.
+  // A single exact origin, never "*": a wildcard origin is not allowed together
+  // with credentials, and the session cookie needs credentials.
   app.use(cors({ origin: config.clientOrigin, credentials: true }));
   app.use(express.json());
+  app.use(cookieParser());
 
+  // Health stays public; only /api/auth/me requires a session.
   app.use('/api', healthRouter);
+  app.use('/api', authRouter);
 
   app.use(notFound);
   app.use(errorHandler);

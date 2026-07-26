@@ -19,6 +19,8 @@
     "db:status": "npm run db:status --workspace server",
     "db:seed": "npm run db:seed --workspace server",
     "db:check": "npm run db:check --workspace server",
+    "db:test:prepare": "npm run db:test:prepare --workspace server",
+    "test:auth": "npm run test:auth --workspace server",
     "db:studio": "npm run db:studio --workspace server"
   },
   "devDependencies": {

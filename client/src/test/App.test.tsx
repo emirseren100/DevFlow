@@ -38,9 +38,22 @@ describe('application shell', () => {
     expect(await screen.findByText('API status: ok')).toBeInTheDocument();
   });
 
-  it('renders the login placeholder route', () => {
+  it('renders the login route once the session check finishes', async () => {
+    // No session: /api/auth/me answers 401 and the login page stays visible.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify({ success: false, error: { code: 'UNAUTHENTICATED', message: 'x' } }),
+            { status: 401, headers: { 'Content-Type': 'application/json' } },
+          ),
+        ),
+      ),
+    );
+
     renderApp('/login');
 
-    expect(screen.getByRole('heading', { level: 1, name: 'Login' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Login' })).toBeInTheDocument();
   });
 });

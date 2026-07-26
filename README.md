@@ -1,9 +1,10 @@
 # DevFlow
 
-> **Status: Phase 2 of 10 complete.** The client and server scaffolding runs and
-> the PostgreSQL schema exists with migrations and seed data. There is still no
-> authentication and no API for workspaces, projects or issues — everything in
-> "Planned Features" is unbuilt.
+> **Status: Phase 3 of 10 complete.** The client and server scaffolding runs, the
+> PostgreSQL schema exists with migrations and seed data, and email/password
+> authentication works with database-backed cookie sessions. There is still no
+> API for workspaces, projects or issues — the rest of "Planned Features" is
+> unbuilt.
 
 ## Project Overview
 
@@ -17,9 +18,9 @@ web application rather than a tutorial to-do list.
 
 ## Planned Features
 
-None of these are implemented yet.
+Only the first item is implemented.
 
-- [ ] User registration and login with HTTP-only cookie sessions
+- [x] User registration and login with HTTP-only cookie sessions
 - [ ] Workspaces with member invitations and roles (owner, admin, member)
 - [ ] Projects inside a workspace
 - [ ] Issues typed as task or bug, with priority and status
@@ -74,8 +75,8 @@ Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 | 0 | Project foundation | Complete |
 | 1 | Client and server scaffolding | Complete |
 | 2 | Database and Prisma | Complete |
-| 3 | Authentication and authorization | Next |
-| 4 | Workspaces and membership | Not started |
+| 3 | Authentication and authorization | Complete |
+| 4 | Workspaces and membership | Next |
 | 5 | Projects and issues | Not started |
 | 6 | Comments, activity and Kanban | Not started |
 | 7 | Frontend integration | Not started |
@@ -86,22 +87,24 @@ Full phase details: [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Current Status
 
-Phase 2 — Database and Prisma is complete. What exists today:
+Phase 3 — Authentication is complete. What exists today:
 
 - npm workspaces root with `client` and `server`
-- React + TypeScript client on port **5174** with placeholder routes
-  (`/`, `/login`, `/register`, `/app`)
-- Express + TypeScript API on port **4000** with `GET /api/health`, a shared
-  404 response and a central error handler
-- CORS configured for `http://localhost:5174`
-- PostgreSQL schema through Prisma 7: User, Workspace, WorkspaceMember,
-  Project, Sprint, Issue, Comment, ActivityLog — with an applied initial
-  migration, an idempotent seed and a read-only database check
-- 5 passing tests: a client shell smoke test and Supertest API tests, none of
-  which require a database
+- React + TypeScript client on port **5174**: working `/login` and `/register`
+  forms and a session-protected `/app` route
+- Express + TypeScript API on port **4000** with `GET /api/health` (public), a
+  shared 404 response and a central error handler
+- CORS configured for `http://localhost:5174` with `credentials: true`
+- PostgreSQL schema through Prisma 7: User, PasswordCredential, Session,
+  Workspace, WorkspaceMember, Project, Sprint, Issue, Comment, ActivityLog —
+  with applied migrations, an idempotent seed and a read-only database check
+- Email/password authentication: Argon2id hashes, opaque session tokens stored
+  as SHA-256 hashes, HTTP-only session cookie, `requireAuth` middleware
+- 24 passing tests: 9 client tests and 15 server tests (the authentication
+  integration tests need the dedicated test database)
 
-Not built yet: authentication, workspace/project/issue APIs, comments,
-activity feed, Kanban, client data integration, Docker and CI.
+Not built yet: workspace/project/issue APIs, comments, activity feed, Kanban,
+client data integration, Docker and CI.
 
 Current state at any time: [docs/PROJECT_STATE.md](docs/PROJECT_STATE.md).
 
@@ -158,7 +161,7 @@ npm run db:studio
 ```
 
 Other database commands: `npm run db:validate`, `npm run db:format`,
-`npm run db:generate`, `npm run db:status`.
+`npm run db:generate`, `npm run db:status`, `npm run db:test:prepare`.
 
 The seed is idempotent — running it again updates the same rows instead of
 creating duplicates.
@@ -167,6 +170,86 @@ creating duplicates.
 > database and destroys all local development data**. It is not part of any npm
 > script here on purpose. Only run it manually, and only against a disposable
 > local development database.
+
+### Authentication
+
+Environment variables read by the server (see `server/.env.example`):
+
+| Variable | Purpose |
+|---|---|
+| `NODE_ENV` | `production` turns on the `Secure` cookie flag |
+| `PORT` | API port, `4000` |
+| `CLIENT_ORIGIN` | the single allowed CORS origin, `http://localhost:5174` |
+| `DATABASE_URL` | PostgreSQL connection string |
+| `SESSION_COOKIE_NAME` | cookie holding the session token, `devflow_session` |
+| `SESSION_TTL_DAYS` | session and cookie lifetime, `7` |
+
+No secret key is needed: session tokens are random values stored as hashes, so
+there is nothing to sign.
+
+Endpoints:
+
+| Endpoint | Purpose |
+|---|---|
+| `POST /api/auth/register` | create an account, start a session |
+| `POST /api/auth/login` | start a session |
+| `POST /api/auth/logout` | delete the session, clear the cookie |
+| `GET /api/auth/me` | current user, `401` without a valid session |
+
+Client routes: `/register` and `/login` are for signed-out visitors, `/app`
+requires a session and redirects guests to `/login`.
+
+#### Development-only seed login
+
+`npm run db:seed` gives every seeded account the same password:
+
+```
+email:    ada@devflow.local
+password: DevFlow123!
+```
+
+The other seeded accounts are `boris@devflow.local` and `ceyda@devflow.local`.
+
+> **These credentials are for local development only.** They are fictional
+> accounts on a disposable database and must never exist in a deployed
+> environment.
+
+### Test database
+
+The authentication tests write and delete rows, so they use a **separate**
+database, never the development one:
+
+```bash
+cp server/.env.test.example server/.env.test
+```
+
+Set `DATABASE_URL` in `server/.env.test` to a disposable database whose name
+contains `devflow_test`. The test setup refuses to run against anything else, so
+a mistyped URL cannot touch development data.
+
+Apply the migrations to it:
+
+```bash
+npm run db:test:prepare
+```
+
+Then run only the authentication tests:
+
+```bash
+npm run test:auth
+```
+
+### Known security limitations
+
+Documented, deliberately **not** implemented in Phase 3:
+
+- no rate limiting on login (brute-force protection)
+- no email verification, no password reset
+- no multi-factor authentication
+- no session or device management screen
+- no CSRF token. `SameSite=Lax`, a single allowed origin and JSON-only requests
+  are enough for the current same-site local setup, but a cross-site production
+  deployment needs this reviewed again in Phase 9.
 
 ### Run in development
 
@@ -189,6 +272,9 @@ npm run typecheck
 ```bash
 npm test
 ```
+
+`npm test` includes the authentication integration tests, which need
+`server/.env.test` and `npm run db:test:prepare` (see "Test database" above).
 
 ```bash
 npm run build
