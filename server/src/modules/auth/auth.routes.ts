@@ -1,8 +1,7 @@
 import { Router } from 'express';
 import type { NextFunction, Request, Response } from 'express';
-import { ZodError } from 'zod';
 
-import { ApiError } from '../../lib/apiError.js';
+import { parseBody } from '../../lib/parseBody.js';
 import { attachSession, requireAuth } from './auth.middleware.js';
 import { loginSchema, registerSchema } from './auth.schemas.js';
 import {
@@ -15,30 +14,6 @@ import {
 } from './auth.service.js';
 
 export const authRouter = Router();
-
-/** Turns a Zod failure into `{ field: [messages] }` for the client form. */
-function toFieldErrors(error: ZodError): Record<string, string[]> {
-  const fieldErrors: Record<string, string[]> = {};
-
-  for (const issue of error.issues) {
-    const field = issue.path.join('.') || 'form';
-    fieldErrors[field] = [...(fieldErrors[field] ?? []), issue.message];
-  }
-
-  return fieldErrors;
-}
-
-function parseBody<T>(schema: { parse: (value: unknown) => T }, body: unknown): T {
-  try {
-    return schema.parse(body);
-  } catch (error) {
-    if (error instanceof ZodError) {
-      throw ApiError.validation(toFieldErrors(error));
-    }
-
-    throw error;
-  }
-}
 
 // Every auth route may need to know about an existing session.
 authRouter.use(attachSession);

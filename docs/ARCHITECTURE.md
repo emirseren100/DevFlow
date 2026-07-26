@@ -59,7 +59,12 @@ GET    /api/auth/me
 GET    /api/workspaces
 POST   /api/workspaces
 GET    /api/workspaces/:workspaceId
+PATCH  /api/workspaces/:workspaceId
+DELETE /api/workspaces/:workspaceId
+GET    /api/workspaces/:workspaceId/members
 POST   /api/workspaces/:workspaceId/members
+PATCH  /api/workspaces/:workspaceId/members/:memberId
+DELETE /api/workspaces/:workspaceId/members/:memberId
 
 GET    /api/workspaces/:workspaceId/projects
 POST   /api/workspaces/:workspaceId/projects
@@ -156,10 +161,48 @@ Model:
 - Never rely on an ID being unguessable. Every request re-checks membership.
 
 Phase 3 built **only** the authentication half: `requireAuth` answers "is this a real,
-unexpired session?" and nothing more. Workspace roles are already in the database but no
-endpoint reads them yet; the authorization half (`403`, membership and role checks)
-arrives with the workspace endpoints in Phase 4. Keeping the two apart means the role
-rules will live in one place instead of being scattered through session handling.
+unexpired session?" and nothing more. Phase 4 added the second half for workspaces.
+
+### 5.1 Workspace authorization as implemented in Phase 4
+
+Server module: `server/src/modules/workspaces/` — `workspace.routes.ts` (HTTP),
+`workspace.schemas.ts` (Zod), `workspace.service.ts` (queries and invariants),
+`workspace.authorization.ts` (membership and role checks), `workspace.types.ts`
+(response shapes and the `req.workspace` augmentation).
+
+**Ownership and membership are two different things.** `Workspace.ownerId` records who
+created the workspace, and the creator additionally gets a `WorkspaceMember` row with the
+role `OWNER`. Access is granted only by the membership row: owning a workspace without a
+membership would give no access, which is why both are written in the same transaction.
+
+**Role-check flow** for every `/api/workspaces/:workspaceId/...` request:
+
+```
+requireAuth            → who is the user?              (401 if no session)
+requireWorkspaceMember → load workspace + this user's membership in one query
+                         no workspace → 404 WORKSPACE_NOT_FOUND
+                         no membership → 403 FORBIDDEN
+                         otherwise      → req.workspace = { workspaceId, role, membershipId }
+requireWorkspaceAdmin  → OWNER or ADMIN only           (403 otherwise)
+requireWorkspaceOwner  → OWNER only                    (403 otherwise)
+service                → target-specific rules (owner membership immutable, self-removal)
+```
+
+The role always comes from PostgreSQL. A role in the request body, in a header or in
+client state is never read, because anyone can craft a request by hand.
+
+**Workspace creation transaction** — `POST /api/workspaces` writes the `Workspace`, the
+creator's `OWNER` membership and the `WORKSPACE_CREATED` activity inside one
+`prisma.$transaction`. Either all three exist or none does, so an ownerless workspace
+cannot be created by a crash between two writes. The slug is generated on the server from
+the name and made unique with a numeric suffix; a lost race on the unique slug index is
+retried instead of failing the request.
+
+**Client to server data flow** — `client/src/lib/workspaceApi.ts` wraps the existing
+`apiRequest` helper (`credentials: "include"`, shared success/error shape). The workspace
+pages hold the response in React state only. The same permission rules exist in
+`workspaceApi.ts` as small helpers, but they only decide which buttons are worth showing:
+every request is authorized again on the server.
 
 ## 6. Zod Validation Boundaries
 

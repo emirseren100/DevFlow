@@ -39,4 +39,45 @@ export class ApiError extends Error {
   static unauthenticated(): ApiError {
     return new ApiError(401, 'UNAUTHENTICATED', 'Authentication required.');
   }
+
+  /** The user is signed in but may not perform this action. */
+  static forbidden(message = 'You are not allowed to perform this action.'): ApiError {
+    return new ApiError(403, 'FORBIDDEN', message);
+  }
+
+  static workspaceNotFound(): ApiError {
+    return new ApiError(404, 'WORKSPACE_NOT_FOUND', 'Workspace not found.');
+  }
+
+  static memberNotFound(): ApiError {
+    return new ApiError(404, 'MEMBER_NOT_FOUND', 'Member not found in this workspace.');
+  }
+
+  static userNotFound(): ApiError {
+    return new ApiError(404, 'USER_NOT_FOUND', 'No registered user has this email address.');
+  }
+
+  static alreadyMember(): ApiError {
+    return new ApiError(409, 'ALREADY_MEMBER', 'This user is already a workspace member.');
+  }
+
+  static invalidRole(message = 'This role change is not allowed.'): ApiError {
+    return new ApiError(400, 'INVALID_ROLE', message);
+  }
+
+  static ownerMembershipImmutable(): ApiError {
+    return new ApiError(
+      403,
+      'OWNER_MEMBERSHIP_IMMUTABLE',
+      'The owner membership cannot be changed or removed.',
+    );
+  }
+
+  static selfRemovalNotAllowed(): ApiError {
+    return new ApiError(
+      403,
+      'SELF_REMOVAL_NOT_ALLOWED',
+      'You cannot remove your own membership through member management.',
+    );
+  }
 }

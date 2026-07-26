@@ -11,6 +11,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:auth": "vitest run src/test/auth.test.ts",
+    "test:workspaces": "vitest run src/test/workspace.test.ts",
     "db:validate": "prisma validate",
     "db:format": "prisma format",
     "db:generate": "prisma generate",

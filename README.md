@@ -76,7 +76,7 @@ Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 | 1 | Client and server scaffolding | Complete |
 | 2 | Database and Prisma | Complete |
 | 3 | Authentication and authorization | Complete |
-| 4 | Workspaces and membership | Next |
+| 4 | Workspaces and membership | Complete |
 | 5 | Projects and issues | Not started |
 | 6 | Comments, activity and Kanban | Not started |
 | 7 | Frontend integration | Not started |
@@ -87,11 +87,11 @@ Full phase details: [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Current Status
 
-Phase 3 — Authentication is complete. What exists today:
+Phase 4 — Workspaces and membership is complete. What exists today:
 
 - npm workspaces root with `client` and `server`
 - React + TypeScript client on port **5174**: working `/login` and `/register`
-  forms and a session-protected `/app` route
+  forms, a session-protected `/app` area, and workspace list and detail pages
 - Express + TypeScript API on port **4000** with `GET /api/health` (public), a
   shared 404 response and a central error handler
 - CORS configured for `http://localhost:5174` with `credentials: true`
@@ -100,11 +100,13 @@ Phase 3 — Authentication is complete. What exists today:
   with applied migrations, an idempotent seed and a read-only database check
 - Email/password authentication: Argon2id hashes, opaque session tokens stored
   as SHA-256 hashes, HTTP-only session cookie, `requireAuth` middleware
-- 24 passing tests: 9 client tests and 15 server tests (the authentication
-  integration tests need the dedicated test database)
+- Workspace and membership API with `OWNER`/`ADMIN`/`MEMBER` roles checked
+  against PostgreSQL on every request
+- 65 passing tests: 20 client tests and 45 server tests (the authentication and
+  workspace integration tests need the dedicated test database)
 
-Not built yet: workspace/project/issue APIs, comments, activity feed, Kanban,
-client data integration, Docker and CI.
+Not built yet: project and issue APIs, comments, activity feed, Kanban, the
+final UI, Docker and CI.
 
 Current state at any time: [docs/PROJECT_STATE.md](docs/PROJECT_STATE.md).
 
@@ -214,10 +216,84 @@ The other seeded accounts are `boris@devflow.local` and `ceyda@devflow.local`.
 > accounts on a disposable database and must never exist in a deployed
 > environment.
 
+### Workspaces and membership
+
+Every endpoint below requires a valid session (`401 UNAUTHENTICATED` without
+one) and re-checks membership and role in PostgreSQL (`403 FORBIDDEN` when the
+role is not enough).
+
+| Endpoint | Allowed | Purpose |
+|---|---|---|
+| `GET /api/workspaces` | any member | workspaces the current user belongs to, with their role and member count |
+| `POST /api/workspaces` | any user | create a workspace; the creator becomes its `OWNER` |
+| `GET /api/workspaces/:workspaceId` | member | workspace details, own role, member count, owner |
+| `PATCH /api/workspaces/:workspaceId` | `OWNER`, `ADMIN` | rename the workspace (the slug does not change) |
+| `DELETE /api/workspaces/:workspaceId` | `OWNER` | delete the workspace and its memberships |
+| `GET /api/workspaces/:workspaceId/members` | member | members ordered `OWNER`, `ADMIN`, `MEMBER`, then join date |
+| `POST /api/workspaces/:workspaceId/members` | `OWNER`, `ADMIN` | add an existing user by email |
+| `PATCH /api/workspaces/:workspaceId/members/:memberId` | `OWNER` | change a member between `ADMIN` and `MEMBER` |
+| `DELETE /api/workspaces/:workspaceId/members/:memberId` | `OWNER`, `ADMIN` | remove a member |
+
+**Roles**
+
+- `OWNER` — the creator. One per workspace, and it never changes: the owner
+  membership cannot be demoted, removed, or duplicated, and ownership cannot be
+  transferred yet.
+- `ADMIN` — helps run the workspace: rename it, add members, remove members.
+- `MEMBER` — read access to the workspace and its member list.
+
+**Permission summary**
+
+| Action | `OWNER` | `ADMIN` | `MEMBER` |
+|---|---|---|---|
+| View workspace and members | yes | yes | yes |
+| Rename workspace | yes | yes | no |
+| Delete workspace | yes | no | no |
+| Add a `MEMBER` | yes | yes | no |
+| Add an `ADMIN` | yes | no | no |
+| Change roles | yes | no | no |
+| Remove a `MEMBER` | yes | yes | no |
+| Remove an `ADMIN` | yes | no | no |
+| Touch the `OWNER` membership | no | no | no |
+
+**Limitation: only registered users can be added.** There are no email
+invitations in this phase. An email with no DevFlow account returns
+`404 USER_NOT_FOUND`, and the person must register first. Leaving a workspace
+yourself is not implemented either: `DELETE .../members/:memberId` rejects
+self-removal with `403 SELF_REMOVAL_NOT_ALLOWED`.
+
+Error codes: `VALIDATION_ERROR` (400), `INVALID_ROLE` (400),
+`UNAUTHENTICATED` (401), `FORBIDDEN` (403), `OWNER_MEMBERSHIP_IMMUTABLE` (403),
+`SELF_REMOVAL_NOT_ALLOWED` (403), `WORKSPACE_NOT_FOUND` (404),
+`MEMBER_NOT_FOUND` (404), `USER_NOT_FOUND` (404), `ALREADY_MEMBER` (409).
+
+Client routes: `/app` redirects to `/app/workspaces` (list and create),
+`/app/workspaces/:workspaceId` shows one workspace with its members. Controls
+that the current role may not use are hidden — the server enforces the rules
+regardless.
+
+**Manual test**
+
+1. `npm run dev`, then register two accounts at http://localhost:5174/register.
+2. As the first account, create a workspace on `/app/workspaces`; you land on
+   its detail page as `OWNER`.
+3. Add the second account by email with the role `MEMBER`.
+4. Sign in as the second account: the workspace is listed, the detail page shows
+   no rename form, no add-member form and no delete button.
+5. Still as the second account, send a forbidden request by hand — the server
+   answers `403` even though the button was never shown:
+
+```bash
+curl -i -X PATCH http://localhost:4000/api/workspaces/<id> -H "Content-Type: application/json" -b "devflow_session=<cookie>" -d "{\"name\":\"Hacked\"}"
+```
+
+6. Without any cookie, `curl -i http://localhost:4000/api/workspaces` returns
+   `401`, while `curl -i http://localhost:4000/api/health` stays public.
+
 ### Test database
 
-The authentication tests write and delete rows, so they use a **separate**
-database, never the development one:
+The authentication and workspace tests write and delete rows, so they use a
+**separate** database, never the development one:
 
 ```bash
 cp server/.env.test.example server/.env.test
@@ -237,6 +313,12 @@ Then run only the authentication tests:
 
 ```bash
 npm run test:auth
+```
+
+Or only the workspace and membership tests:
+
+```bash
+npm run test:workspaces
 ```
 
 ### Known security limitations
@@ -273,7 +355,7 @@ npm run typecheck
 npm test
 ```
 
-`npm test` includes the authentication integration tests, which need
+`npm test` includes the authentication and workspace integration tests, which need
 `server/.env.test` and `npm run db:test:prepare` (see "Test database" above).
 
 ```bash

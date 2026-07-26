@@ -21,6 +21,7 @@
     "db:check": "npm run db:check --workspace server",
     "db:test:prepare": "npm run db:test:prepare --workspace server",
     "test:auth": "npm run test:auth --workspace server",
+    "test:workspaces": "npm run test:workspaces --workspace server",
     "db:studio": "npm run db:studio --workspace server"
   },
   "devDependencies": {

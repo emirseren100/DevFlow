@@ -327,3 +327,90 @@ delete and takes effect immediately, which is the main thing a JWT cannot do.
 The failure message for a wrong password and an unknown email is identical, so
 the API does not reveal who has an account. It is covered by integration tests
 against a dedicated test database that the setup refuses to run without.
+
+---
+
+## Phase 4 — Workspaces, Membership and Role-Based Authorization
+
+**Phase:** 4 — Workspaces and Membership (2026-07-26)
+
+**Concepts learned:**
+- Multi-tenant design — one database and one set of tables serve many
+  independent teams; every row belongs to a workspace, and every query is
+  filtered by the workspace the caller may actually see. The isolation is
+  enforced by the queries, not by separate databases.
+- Ownership versus membership — `Workspace.ownerId` says who created it;
+  `WorkspaceMember` says who may enter and with which role. Access is granted
+  only by the membership row, so the creator gets one too. One rule to check
+  instead of "member or owner" scattered everywhere.
+- Role-based authorization (RBAC) — permissions attach to a role
+  (`OWNER`/`ADMIN`/`MEMBER`), not to a person, so "what may an admin do" is
+  answered in one place and adding a user never means editing permission lists.
+- Authentication versus authorization — authentication answers *who are you*
+  (401 when there is no answer); authorization answers *may you do this here*
+  (403 when the answer is no). The same user is authenticated everywhere but
+  authorized differently per workspace.
+- 401 versus 403 — 401 means "log in and try again"; 403 means "you are logged
+  in and it still will not happen". Returning 401 for a permission problem sends
+  the client into a pointless login loop.
+- Database transactions — `prisma.$transaction` makes several writes one
+  all-or-nothing unit. Creating a workspace writes the workspace, the OWNER
+  membership and the activity row together, so a crash cannot leave a workspace
+  nobody can administer.
+- Composite unique constraints — `@@unique([workspaceId, userId])` lets the
+  database itself reject a second membership for the same person in the same
+  workspace, including two requests arriving at the same millisecond. A check in
+  application code alone cannot promise that.
+- Server-side enforcement — the client is not a trusted source. Roles are read
+  from PostgreSQL on every request; a role sent in a body, a header or React
+  state is ignored.
+- Hiding a button is not security — the UI hides controls a role may not use, but
+  that is user experience. Anyone can send the request with `curl`, so the same
+  rule is checked again on the server. The client rule is a convenience copy.
+- Safe response shapes — member endpoints return `id`, `name`, `email`, role and
+  join date only. Password hashes and sessions live in their own tables and are
+  never selected, so they cannot leak by accident.
+
+**Files understood:**
+- `server/src/modules/workspaces/workspace.authorization.ts` — loads the
+  workspace and the caller's membership in one query, then the small
+  `requireWorkspaceMember` / `requireWorkspaceAdmin` / `requireWorkspaceOwner`
+  gates plus the two rules that depend on the target's role.
+- `server/src/modules/workspaces/workspace.service.ts` — Prisma queries, slug
+  generation, the creation transaction and the OWNER invariants.
+- `server/src/modules/workspaces/workspace.schemas.ts` — Zod at the API edge;
+  `OWNER` is deliberately not an assignable role.
+- `client/src/lib/workspaceApi.ts` — typed calls over the existing fetch wrapper,
+  plus the permission helpers that decide which controls are rendered.
+
+**Problems solved:**
+- Slugs must be unique globally, but two people can create "Acme" at the same
+  moment. The server picks the first free suffix and, if it still loses the race
+  on the unique index, retries instead of failing the request.
+- An outsider asking for a workspace must not learn what is inside it. A missing
+  workspace is 404, an existing one without a membership is a plain 403 with no
+  detail either way.
+- A member id from another workspace could be pasted into this workspace's URL,
+  so the lookup filters by `workspaceId` **and** member id — the answer is
+  `MEMBER_NOT_FOUND`, not somebody else's data.
+- Prisma logged the expected duplicate-membership error as a database error. A
+  membership check before the insert keeps the logs clean, while the unique
+  index and the `P2002` handler still cover the race.
+- The `/app` page became a small layout with the workspace pages nested inside,
+  so the existing authentication tests kept passing unchanged.
+
+**Interview explanation:**
+This phase turned a single-user app into a multi-tenant one. Data belongs to a
+workspace, and a user reaches a workspace only through an explicit membership row
+that carries a role: OWNER, ADMIN or MEMBER. Creating a workspace writes the
+workspace, the creator's OWNER membership and an activity record in one
+transaction, so a workspace without an administrator cannot exist. Every
+protected request first answers "who is this?" from the session cookie, then
+separately "what may this person do in this workspace?" by loading their
+membership from PostgreSQL — the role is never taken from the client. Missing
+authentication is 401, insufficient permission is 403. The database enforces what
+it can: a composite unique constraint on workspace plus user makes a double
+membership impossible even under concurrent requests. The UI hides controls a
+role cannot use, but that is only convenience; the same rules are re-checked
+server-side, which is what the integration tests verify by sending forbidden
+requests directly.

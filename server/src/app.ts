@@ -6,6 +6,7 @@ import { config } from './config.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { notFound } from './middleware/notFound.js';
 import { authRouter } from './modules/auth/auth.routes.js';
+import { workspaceRouter } from './modules/workspaces/workspace.routes.js';
 import { healthRouter } from './routes/health.js';
 
 /**
@@ -21,9 +22,10 @@ export function createApp() {
   app.use(express.json());
   app.use(cookieParser());
 
-  // Health stays public; only /api/auth/me requires a session.
+  // Health stays public; /api/auth/me and every workspace route need a session.
   app.use('/api', healthRouter);
   app.use('/api', authRouter);
+  app.use('/api', workspaceRouter);
 
   app.use(notFound);
   app.use(errorHandler);

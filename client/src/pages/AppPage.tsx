@@ -1,8 +1,12 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Outlet, useNavigate } from 'react-router-dom';
 
 import { useAuth } from '../auth/AuthProvider';
 
+/**
+ * Layout for everything behind /app. It only shows who is signed in; the
+ * workspace pages below decide what is on screen.
+ */
 export default function AppPage() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
@@ -16,15 +20,16 @@ export default function AppPage() {
 
   return (
     <section>
-      <h1>Workspace</h1>
-      <p>Signed in as {user?.name}</p>
-      <p>{user?.email}</p>
+      <header>
+        <p>Signed in as {user?.name}</p>
+        <p>{user?.email}</p>
 
-      <button type="button" onClick={handleLogout} disabled={isLoggingOut}>
-        {isLoggingOut ? 'Signing out…' : 'Sign out'}
-      </button>
+        <button type="button" onClick={handleLogout} disabled={isLoggingOut}>
+          {isLoggingOut ? 'Signing out…' : 'Sign out'}
+        </button>
+      </header>
 
-      <p>Workspaces, projects and issues arrive in Phases 4-6.</p>
+      <Outlet />
     </section>
   );
 }
