@@ -1,0 +1,16 @@
+# Root build context: both Dockerfiles build from here.
+node_modules
+**/node_modules
+dist
+**/dist
+coverage
+**/coverage
+.git
+.github
+.gitignore
+.env
+.env.*
+!.env.example
+!.env.test.example
+*.log
+docs

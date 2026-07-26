@@ -32,6 +32,7 @@ prisma/migrations/dev.db*
 .env.*
 !.env.example
 !.env.test.example
+!.env.docker.example
 
 # Logs
 logs/

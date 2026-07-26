@@ -1,0 +1,88 @@
+# DevFlow continuous integration.
+#
+# One job that does exactly what a developer does locally, in the same order:
+# install, validate the schema, apply the migrations to a throwaway database,
+# typecheck, test, build. Every step is an npm script that also works from the
+# repository root on Windows, so nothing important lives only in this file.
+#
+# This workflow verifies. It does not deploy.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  verify:
+    name: Typecheck, test and build
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        # A disposable database that exists only for the length of this run.
+        # The name contains "devflow_test", which is what the test setup's
+        # safety guard insists on.
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: devflow_test
+          POSTGRES_USER: devflow
+          POSTGRES_PASSWORD: devflow_ci_password
+        ports:
+          - 5432:5432
+        # The runner must wait for "accepting connections", not merely for a
+        # started container, or the first migration races the database.
+        options: >-
+          --health-cmd "pg_isready -U devflow -d devflow_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      NODE_ENV: test
+      CLIENT_ORIGIN: http://localhost:5174
+      DATABASE_URL: postgresql://devflow:devflow_ci_password@localhost:5432/devflow_test?schema=public
+      DATABASE_POOL_MAX: 10
+      SESSION_COOKIE_NAME: devflow_session
+      SESSION_TTL_DAYS: 7
+      # The client bundle is built against the local API URL; a deployment
+      # phase will supply the real one.
+      VITE_API_URL: http://localhost:4000/api
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          # Matches the engines field: Node 22 LTS.
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        # `npm ci` installs exactly the lockfile, so CI can never test a
+        # different dependency tree than the one committed.
+        run: npm ci
+
+      - name: Validate the Prisma schema
+        run: npm run db:validate
+
+      - name: Generate the Prisma Client
+        run: npm run db:generate
+
+      - name: Apply migrations to the test database
+        # `migrate deploy` replays the committed migrations. `migrate dev` would
+        # be wrong here: it can create a migration and it can reset a database.
+        run: npm run db:deploy
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        # The integration tests create their own fixtures, so the development
+        # seed is never needed.
+        run: npm test
+
+      - name: Build
+        run: npm run build

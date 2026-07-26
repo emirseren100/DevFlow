@@ -130,4 +130,27 @@ export class ApiError extends Error {
   static invalidSort(message = 'This sort field is not supported.'): ApiError {
     return new ApiError(400, 'INVALID_SORT', message);
   }
+
+  /**
+   * Too many login or register attempts. The message is deliberately identical
+   * for a known and an unknown email, so the limiter never becomes a way to
+   * find out which addresses have an account.
+   */
+  static rateLimited(): ApiError {
+    return new ApiError(429, 'RATE_LIMITED', 'Too many attempts. Please try again later.');
+  }
+
+  /** A state-changing request arrived from an origin that is not the client. */
+  static invalidOrigin(): ApiError {
+    return new ApiError(403, 'INVALID_ORIGIN', 'This request came from an unexpected origin.');
+  }
+
+  static payloadTooLarge(): ApiError {
+    return new ApiError(413, 'PAYLOAD_TOO_LARGE', 'The request body is too large.');
+  }
+
+  /** Body that is not the JSON the API contract requires. */
+  static malformedJson(): ApiError {
+    return new ApiError(400, 'MALFORMED_JSON', 'The request body is not valid JSON.');
+  }
 }

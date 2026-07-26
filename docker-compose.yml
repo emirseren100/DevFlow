@@ -1,0 +1,90 @@
+# DevFlow — local Docker development stack.
+#
+#   cp .env.docker.example .env.docker
+#   docker compose build
+#   docker compose up
+#   docker compose down
+#
+# Ports are chosen so this stack can run next to a normal `npm run dev`:
+#
+#   client  http://localhost:5175   (Vite dev server stays on 5174)
+#   server  http://localhost:4000
+#   database localhost:5433         (a host PostgreSQL keeps 5432)
+#
+# Inside the Compose network the services use their service names and the real
+# container ports, so the server reaches the database at postgres:5432.
+#
+#   Client container → Server container → PostgreSQL container
+#
+# The credentials below are development-only. This file is not a deployment.
+
+name: devflow
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-devflow}
+      POSTGRES_USER: ${POSTGRES_USER:-devflow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-devflow_local_password}
+    ports:
+      # host:container — 5433 outside so an installed PostgreSQL keeps 5432.
+      - '${POSTGRES_HOST_PORT:-5433}:5432'
+    volumes:
+      - devflow_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      # "Accepting connections" is what the server actually needs; a running
+      # container is not the same thing as a ready database.
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-devflow} -d ${POSTGRES_DB:-devflow}']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  server:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        # Waits for the healthcheck above, not merely for the container to start.
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      # The browser talks to the client container, so that is the origin the
+      # API must accept.
+      CLIENT_ORIGIN: http://localhost:${CLIENT_PORT:-5175}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-devflow}:${POSTGRES_PASSWORD:-devflow_local_password}@postgres:5432/${POSTGRES_DB:-devflow}?schema=public
+      DATABASE_POOL_MAX: 10
+      SESSION_COOKIE_NAME: ${SESSION_COOKIE_NAME:-devflow_session}
+      SESSION_TTL_DAYS: ${SESSION_TTL_DAYS:-7}
+    ports:
+      - '${SERVER_PORT:-4000}:4000'
+    # Apply the migration history, then start the compiled server. `migrate
+    # deploy` only replays committed migrations: it never rewrites one, never
+    # asks a question and never resets the database — unlike `migrate dev`.
+    # The development seed is deliberately not run here.
+    # `--no-install` keeps npx to the Prisma CLI already inside the image, so a
+    # container start never downloads anything.
+    command: ['sh', '-c', 'npx --no-install prisma migrate deploy && node dist/server.js']
+
+  client:
+    build:
+      context: .
+      dockerfile: client/Dockerfile
+      args:
+        # Baked into the bundle at build time, so changing it needs a rebuild.
+        VITE_API_URL: http://localhost:${SERVER_PORT:-4000}/api
+    restart: unless-stopped
+    depends_on:
+      - server
+    ports:
+      - '${CLIENT_PORT:-5175}:80'
+
+volumes:
+  # Named volume: `docker compose down` keeps the data. Removing it is a
+  # separate, explicit command — see the README.
+  devflow_postgres_data:

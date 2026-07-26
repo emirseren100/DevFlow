@@ -1,5 +1,4 @@
-// Same convention as HealthStatus: the base URL already ends with /api.
-const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:4000/api';
+import { API_URL } from './env';
 
 export interface ApiErrorBody {
   code: string;

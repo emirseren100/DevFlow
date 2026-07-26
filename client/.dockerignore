@@ -1,0 +1,20 @@
+# Never copy local build output, dependencies or secrets into an image.
+node_modules
+**/node_modules
+dist
+**/dist
+coverage
+**/coverage
+.git
+.github
+.gitignore
+.env
+.env.*
+!.env.example
+!.env.test.example
+*.log
+docs
+README.md
+docker-compose.yml
+**/Dockerfile
+**/.dockerignore
