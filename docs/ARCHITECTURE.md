@@ -371,6 +371,67 @@ pagination metadata and one `findMany` that joins the reporter, assignee and
 sprint. Paging is done in the database with `skip` and `take`, capped at 100
 rows, so the response size never depends on how large the project has grown.
 
+## 9.2 Comments, Activity and the Kanban Board (Phase 6)
+
+**Comment flow.** A comment belongs to exactly one issue and one author:
+`Issue 1─n Comment n─1 User`. Deleting an issue cascades to its comments;
+deleting a user is restricted while comments exist, so a comment never loses its
+author. Every route walks the whole chain in the database — membership, project
+in workspace, issue in project, comment on issue — so a foreign id gives a 404 or
+a 403, never data. The author id is taken from the session, never from the body.
+Bodies are plain text: trimmed, 1–5000 characters, rendered with
+`white-space: pre-wrap`, so a user's HTML stays visible characters. Editing is
+restricted to the author (an `OWNER` may delete somebody's words but not rewrite
+them); deleting is allowed for the author, `OWNER` and `ADMIN`.
+
+**What `ActivityLog` is for.** It is an append-only audit trail of meaningful
+state changes: who did what, to which issue, when. Nothing edits or deletes a
+row, and reads are never logged. It answers "what happened here?" without
+inspecting every table's `updatedAt`, and it is the data behind both feeds.
+
+**Structured metadata, not sentences.** A row stores a `type` plus a small JSON
+object (`previousStatus`, `nextStatus`, `previousAssigneeId`, `nextAssigneeId`,
+`changedFields`, `commentId`, …). The readable sentence is built in the client
+from those fields, so wording can change without a migration. On the way out the
+metadata passes a key whitelist, so nothing unexpected can leak through a feed,
+and the actor is reduced to `id`, `name` and `email` (or `null`, rendered as a
+system action).
+
+**Status and position.** A card's column is `Issue.status` and its place inside
+that column is `Issue.position` — a column-local integer starting at 0. The
+composite index `(projectId, status, position)` serves both the board query and
+the reorder reads. The whole board is one `findMany` grouped in memory, so five
+columns cost one round trip and no N+1.
+
+**Server-owned ordering.** `PATCH .../issues/:issueId/move` accepts only
+`targetStatus` and `targetIndex`. The server loads the destination column in real
+position order, clamps the index to that column's length, inserts the card,
+renumbers the destination and — when the status changed — the source column as
+well, then writes the status change activity. A client-supplied list of issue ids
+is never accepted, and the response is the confirmed board.
+
+**Transactional reorder.** All of those writes happen inside one
+`prisma.$transaction` with `Serializable` isolation, so two people reordering the
+same column cannot interleave their reads and produce duplicate positions. A
+write conflict (Prisma `P2034`) is retried a small, bounded number of times. A
+failure leaves the previous order completely untouched — there is no half-applied
+move.
+
+**Client flow and rollback.** `@dnd-kit` reports a drop, the board applies the
+move locally for instant feedback, and the request goes out with three values.
+The server's board replaces the local one on success. On failure the saved board
+is restored and an error is shown, so a rejected move can never leave a card
+duplicated or missing. A labelled "Move … to" select does the same thing without
+dragging, because a keyboard-only or touch user must not be locked out; the drag
+handle is hidden when the server says `canMove: false`, which is convenience,
+never protection.
+
+**Why realtime is deferred.** Another person's move appears on reload. Live
+updates would need a second protocol (WebSockets or SSE), connection state,
+reconnection, per-workspace authorization on every message and a much harder test
+story. The MVP's value — correct, authorized, durable ordering — is already
+delivered by one transaction over HTTP, so realtime belongs to a later phase.
+
 ## 10. Docker Compose
 
 - Local development starts with Compose providing **PostgreSQL** (and optionally

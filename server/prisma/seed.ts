@@ -76,6 +76,10 @@ const sprints = [
   },
 ] as const;
 
+/**
+ * `position` is a column-local order value: every status column starts at 0 and
+ * counts up, exactly like the Kanban move endpoint writes it.
+ */
 const issues = [
   {
     id: 'seed_issue_01',
@@ -103,7 +107,7 @@ const issues = [
     type: 'TASK',
     status: 'IN_REVIEW',
     priority: 'LOW',
-    position: 1,
+    position: 0,
   },
   {
     id: 'seed_issue_03',
@@ -117,7 +121,7 @@ const issues = [
     type: 'BUG',
     status: 'IN_PROGRESS',
     priority: 'URGENT',
-    position: 2,
+    position: 0,
   },
   {
     id: 'seed_issue_04',
@@ -131,7 +135,7 @@ const issues = [
     type: 'TASK',
     status: 'TODO',
     priority: 'MEDIUM',
-    position: 3,
+    position: 0,
   },
   {
     id: 'seed_issue_05',
@@ -145,7 +149,7 @@ const issues = [
     type: 'BUG',
     status: 'BACKLOG',
     priority: 'MEDIUM',
-    position: 4,
+    position: 0,
   },
   {
     id: 'seed_issue_06',
@@ -159,7 +163,7 @@ const issues = [
     type: 'TASK',
     status: 'BACKLOG',
     priority: 'LOW',
-    position: 5,
+    position: 1,
   },
   {
     id: 'seed_issue_07',
@@ -187,7 +191,7 @@ const issues = [
     type: 'BUG',
     status: 'TODO',
     priority: 'MEDIUM',
-    position: 1,
+    position: 0,
   },
   {
     id: 'seed_issue_09',
@@ -201,7 +205,7 @@ const issues = [
     type: 'TASK',
     status: 'BACKLOG',
     priority: 'LOW',
-    position: 2,
+    position: 0,
   },
   {
     id: 'seed_issue_10',
@@ -215,7 +219,7 @@ const issues = [
     type: 'BUG',
     status: 'DONE',
     priority: 'HIGH',
-    position: 3,
+    position: 0,
   },
 ] as const;
 
@@ -262,7 +266,7 @@ const activities = [
     actorId: 'seed_user_ceyda',
     projectId: 'seed_prj_api',
     issueId: 'seed_issue_03',
-    metadata: { from: 'TODO', to: 'IN_PROGRESS' },
+    metadata: { previousStatus: 'TODO', nextStatus: 'IN_PROGRESS' },
   },
   {
     id: 'seed_act_6',
@@ -270,6 +274,7 @@ const activities = [
     actorId: 'seed_user_ada',
     projectId: 'seed_prj_api',
     issueId: 'seed_issue_03',
+    metadata: { commentId: 'seed_comment_1' },
   },
 ] as const;
 

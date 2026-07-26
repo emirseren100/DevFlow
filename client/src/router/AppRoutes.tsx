@@ -3,11 +3,13 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 import RequireAuth, { RedirectIfAuthenticated } from '../auth/RequireAuth';
 import RootLayout from '../layouts/RootLayout';
 import AppPage from '../pages/AppPage';
+import BoardPage from '../pages/BoardPage';
 import HomePage from '../pages/HomePage';
 import IssueCreatePage from '../pages/IssueCreatePage';
 import IssueDetailPage from '../pages/IssueDetailPage';
 import LoginPage from '../pages/LoginPage';
 import NotFoundPage from '../pages/NotFoundPage';
+import ProjectActivityPage from '../pages/ProjectActivityPage';
 import ProjectDetailPage from '../pages/ProjectDetailPage';
 import ProjectListPage from '../pages/ProjectListPage';
 import RegisterPage from '../pages/RegisterPage';
@@ -37,6 +39,14 @@ export default function AppRoutes() {
             <Route
               path="workspaces/:workspaceId/projects/:projectId"
               element={<ProjectDetailPage />}
+            />
+            <Route
+              path="workspaces/:workspaceId/projects/:projectId/board"
+              element={<BoardPage />}
+            />
+            <Route
+              path="workspaces/:workspaceId/projects/:projectId/activity"
+              element={<ProjectActivityPage />}
             />
             {/* "new" comes before ":issueId" so it is never read as an id. */}
             <Route

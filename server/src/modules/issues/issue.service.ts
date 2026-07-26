@@ -4,7 +4,7 @@ import { prisma } from '../../lib/prisma.js';
 import type { ProjectContext } from '../projects/project.types.js';
 import { issuePermissions } from './issue.authorization.js';
 import type { CreateIssueInput, ListIssuesQuery, UpdateIssueInput } from './issue.schemas.js';
-import type { IssueDetail, IssueListResult, IssueSummary } from './issue.types.js';
+import type { IssueDetail, IssueListResult, IssueRef, IssueSummary } from './issue.types.js';
 
 const safeUserSelect = { id: true, name: true, email: true } as const;
 
@@ -216,6 +216,33 @@ async function findIssueRow(projectId: string, issueId: string): Promise<IssueRo
   return issue;
 }
 
+/**
+ * Minimal issue lookup shared by the comment, activity and Kanban modules.
+ *
+ * `projectId` is part of the filter, so an issue id that belongs to another
+ * project can never be reached through this project's URL.
+ */
+export async function findIssueRef(projectId: string, issueId: string): Promise<IssueRef> {
+  const issue = await prisma.issue.findFirst({
+    where: { id: issueId, projectId },
+    select: {
+      id: true,
+      number: true,
+      title: true,
+      status: true,
+      position: true,
+      reporterId: true,
+      assigneeId: true,
+    },
+  });
+
+  if (!issue) {
+    throw ApiError.issueNotFound();
+  }
+
+  return issue;
+}
+
 function toDetail(
   issue: IssueRow,
   project: ProjectContext,
@@ -274,6 +301,13 @@ export async function createIssue(
     // may use is the one just before it.
     const number = counter.nextIssueNumber - 1;
 
+    // Phase 6: `position` orders a Kanban column, so a new issue lands at the
+    // end of the column it starts in. Counting inside the same transaction is
+    // enough here; the board query breaks any remaining tie by issue number.
+    const position = await tx.issue.count({
+      where: { projectId: project.projectId, status: input.status },
+    });
+
     const created = await tx.issue.create({
       data: {
         projectId: project.projectId,
@@ -284,9 +318,7 @@ export async function createIssue(
         type: input.type,
         status: input.status,
         priority: input.priority,
-        // Ordering inside a Kanban column arrives in Phase 6; until then the
-        // issue number is a stable, collision-free starting position.
-        position: number,
+        position,
         ...(input.description ? { description: input.description } : {}),
         ...(input.assigneeId ? { assigneeId: input.assigneeId } : {}),
         ...(input.sprintId ? { sprintId: input.sprintId } : {}),
@@ -336,16 +368,33 @@ export async function updateIssue(
 
   // Only fields that really differ count as a change, so re-saving a form
   // without touching anything writes no activity row at all.
-  const otherChanged =
-    (input.title !== undefined && input.title !== current.title) ||
-    (input.description !== undefined && (input.description ?? null) !== current.description) ||
-    (input.type !== undefined && input.type !== current.type) ||
-    (input.priority !== undefined && input.priority !== current.priority) ||
-    (input.sprintId !== undefined && (input.sprintId ?? null) !== current.sprint?.id) ||
-    (input.dueDate !== undefined &&
-      (input.dueDate?.getTime() ?? null) !== (current.dueDate?.getTime() ?? null));
+  const changedFields = [
+    ...(input.title !== undefined && input.title !== current.title ? ['title'] : []),
+    ...(input.description !== undefined && (input.description ?? null) !== current.description
+      ? ['description']
+      : []),
+    ...(input.type !== undefined && input.type !== current.type ? ['type'] : []),
+    ...(input.priority !== undefined && input.priority !== current.priority ? ['priority'] : []),
+    ...(input.sprintId !== undefined && (input.sprintId ?? null) !== (current.sprint?.id ?? null)
+      ? ['sprintId']
+      : []),
+    ...(input.dueDate !== undefined &&
+    (input.dueDate?.getTime() ?? null) !== (current.dueDate?.getTime() ?? null)
+      ? ['dueDate']
+      : []),
+  ];
 
   const issue = await prisma.$transaction(async (tx) => {
+    // A status change through this endpoint also moves the issue to the end of
+    // its new Kanban column, so `position` never keeps a value that belonged to
+    // a different column. Reordering inside a column is the /move endpoint.
+    const position =
+      statusChanged && input.status !== undefined
+        ? await tx.issue.count({
+            where: { projectId: project.projectId, status: input.status, id: { not: current.id } },
+          })
+        : undefined;
+
     const updated = await tx.issue.update({
       where: { id: current.id },
       // Only the fields listed here can move. The number, the reporter, the
@@ -355,6 +404,7 @@ export async function updateIssue(
         ...(input.description === undefined ? {} : { description: input.description }),
         ...(input.type === undefined ? {} : { type: input.type }),
         ...(input.status === undefined ? {} : { status: input.status }),
+        ...(position === undefined ? {} : { position }),
         ...(input.priority === undefined ? {} : { priority: input.priority }),
         ...(input.assigneeId === undefined ? {} : { assigneeId: input.assigneeId }),
         ...(input.sprintId === undefined ? {} : { sprintId: input.sprintId }),
@@ -365,12 +415,27 @@ export async function updateIssue(
 
     const events = [
       ...(statusChanged
-        ? [{ type: 'ISSUE_STATUS_CHANGED' as const, metadata: { from: current.status, to: updated.status } }]
+        ? [
+            {
+              type: 'ISSUE_STATUS_CHANGED' as const,
+              metadata: { previousStatus: current.status, nextStatus: updated.status },
+            },
+          ]
         : []),
       ...(assigneeChanged
-        ? [{ type: 'ISSUE_ASSIGNED' as const, metadata: { from: current.assigneeId, to: updated.assigneeId } }]
+        ? [
+            {
+              type: 'ISSUE_ASSIGNED' as const,
+              metadata: {
+                previousAssigneeId: current.assigneeId,
+                nextAssigneeId: updated.assigneeId,
+              },
+            },
+          ]
         : []),
-      ...(otherChanged ? [{ type: 'ISSUE_UPDATED' as const, metadata: {} }] : []),
+      ...(changedFields.length > 0
+        ? [{ type: 'ISSUE_UPDATED' as const, metadata: { changedFields } }]
+        : []),
     ];
 
     for (const event of events) {

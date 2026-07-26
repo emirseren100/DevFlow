@@ -25,6 +25,9 @@
     "test:projects": "npm run test:projects --workspace server",
     "test:sprints": "npm run test:sprints --workspace server",
     "test:issues": "npm run test:issues --workspace server",
+    "test:comments": "npm run test:comments --workspace server",
+    "test:activities": "npm run test:activities --workspace server",
+    "test:kanban": "npm run test:kanban --workspace server",
     "db:studio": "npm run db:studio --workspace server"
   },
   "devDependencies": {

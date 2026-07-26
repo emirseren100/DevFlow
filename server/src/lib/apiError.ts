@@ -106,6 +106,11 @@ export class ApiError extends Error {
     return new ApiError(404, 'ISSUE_NOT_FOUND', 'Issue not found in this project.');
   }
 
+  /** Also used when a comment exists but belongs to another issue. */
+  static commentNotFound(): ApiError {
+    return new ApiError(404, 'COMMENT_NOT_FOUND', 'Comment not found on this issue.');
+  }
+
   static invalidAssignee(): ApiError {
     return new ApiError(400, 'INVALID_ASSIGNEE', 'The assignee must be a workspace member.');
   }

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
+import ProjectNav from '../components/ProjectNav';
 import { ApiError } from '../lib/apiClient';
 import type { IssueListResult, ProjectDetail } from '../lib/projectApi';
 import {
@@ -156,6 +157,8 @@ export default function ProjectDetailPage() {
       <p>
         <Link to={`/app/workspaces/${workspaceId}/projects`}>Back to projects</Link>
       </p>
+
+      <ProjectNav workspaceId={workspaceId} projectId={projectId} />
 
       <h1>
         {project.key} — {project.name}

@@ -16,6 +16,15 @@ export const ISSUE_STATUSES: IssueStatus[] = [
   'DONE',
 ];
 
+/** Readable column names. The database keeps the enum, the UI shows these. */
+export const STATUS_LABELS: Record<IssueStatus, string> = {
+  BACKLOG: 'Backlog',
+  TODO: 'To Do',
+  IN_PROGRESS: 'In Progress',
+  IN_REVIEW: 'In Review',
+  DONE: 'Done',
+};
+
 export const ISSUE_TYPES: IssueType[] = ['TASK', 'BUG'];
 
 export const ISSUE_PRIORITIES: IssuePriority[] = ['LOW', 'MEDIUM', 'HIGH', 'URGENT'];

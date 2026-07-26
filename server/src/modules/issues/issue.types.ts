@@ -30,6 +30,20 @@ export interface IssueSummary {
   updatedAt: Date;
 }
 
+/**
+ * Just enough of an issue row to check a permission or to scope a nested
+ * resource. Used by the comment, activity and Kanban modules.
+ */
+export interface IssueRef {
+  id: string;
+  number: number;
+  title: string;
+  status: IssueStatus;
+  position: number;
+  reporterId: string;
+  assigneeId: string | null;
+}
+
 /** What the current user may do with this issue, decided by the server. */
 export interface IssuePermissions {
   canUpdate: boolean;

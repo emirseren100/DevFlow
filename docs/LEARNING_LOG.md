@@ -516,3 +516,117 @@ sprints, and relationship-based for issues, where a plain member may edit the
 issue they reported or are assigned to. The issue list is filtered, sorted and
 paginated in the database, capped at 100 rows per request, and the client keeps
 those filters in the URL query string so a view can be reloaded or shared.
+
+## Phase 6 — Comments, Activity and Kanban
+
+**Phase:** 6 — Comments, activity feed and Kanban workflow (2026-07-26)
+
+**Concepts learned:**
+- Comments as relational data — a comment is a row with two foreign keys
+  (`issueId`, `authorId`), not a text blob on the issue. That is what makes
+  "who wrote it", "sort by time" and "delete only mine" ordinary queries. The
+  cascade rules encode intent: deleting an issue deletes its comments, while a
+  user who still has comments cannot be deleted, so no comment loses its author.
+- Audit/activity logs — an append-only table of *what happened*. Nothing updates
+  or deletes a row, and only meaningful state changes are recorded (never reads,
+  filters or failed validations). It answers "what changed here, by whom, when?"
+  without inspecting every table.
+- Structured metadata versus formatted text — the row stores
+  `{ previousStatus: "TODO", nextStatus: "IN_PROGRESS" }`, not the sentence
+  "Ada moved API-2 to In Progress". The wording is built in the client, so it can
+  change (or be translated) without a migration and without rewriting history.
+  On the way out the metadata is filtered against a key whitelist, so a careless
+  future writer cannot leak anything through a feed.
+- Authorization on nested resources — every level is re-proved in the database:
+  the user is a member of the workspace, the project belongs to that workspace,
+  the issue belongs to that project, the comment belongs to that issue. A URL is
+  a claim; the `where` filter is the proof.
+- Asymmetric permissions — editing and deleting are not the same right. Only the
+  author may rewrite their words; the author, OWNER and ADMIN may delete them.
+  Moderation is not authorship.
+- Ordering with an integer position — the board column is `status`, the place
+  inside it is `position`, renumbered `0, 1, 2, …` after every move. Contiguous
+  integers are easy to read, to test and to explain, and the alternatives
+  (fractional positions, linked lists) each buy fewer writes with more ways to
+  corrupt an order.
+- Server-owned ordering — the client sends `issueId`, `targetStatus` and
+  `targetIndex`, nothing else. The server reads the real order and writes the
+  result, so a hand-made request cannot reorder other people's cards. Trusting a
+  client-sent list of ids would be trusting the one thing that can be edited.
+- Database transactions — one move rewrites several rows in two columns. Wrapped
+  in `prisma.$transaction`, it is all-or-nothing: a crash halfway leaves the
+  previous order untouched instead of duplicate positions.
+- Race conditions and isolation — two people reordering the same column can both
+  read the same "before" state and write conflicting positions. `Serializable`
+  isolation makes PostgreSQL refuse that interleaving; the refusal arrives as
+  Prisma error `P2034`, which is retried a small, bounded number of times. A
+  bounded retry is a fix; an unbounded one is a hang.
+- Optimistic UI and rollback — the card moves immediately, the previous board is
+  kept in a variable, and the server's confirmed board replaces the local one. On
+  failure the saved board is restored and the error shown, so a rejected move
+  never leaves a duplicated or missing card. Optimistic UI without a rollback is
+  just a lie that is usually true.
+- Drag-and-drop state — the library only reports "this card was dropped over
+  that one". Translating that into "status X, index N" and then into one request
+  is application logic; the library holds no truth about the data.
+- Accessible alternatives to dragging — a pointer gesture cannot be the only way
+  to change a status. Every movable card also has a labelled "Move … to" select
+  and a keyboard-reachable drag handle, and each card announces its identity and
+  its current column.
+- Why the MVP needs no WebSockets — realtime means a second protocol, connection
+  state, reconnection, per-message authorization and a much harder test story.
+  The value here is correct, authorized, durable ordering, which one HTTP
+  transaction already delivers. Another person's move appears on reload.
+
+**Files understood:**
+- `server/src/modules/comments/comment.authorization.ts` — why edit and delete
+  have different rules.
+- `server/src/modules/kanban/kanban.service.ts` — the whole move: read the real
+  order, clamp the index, renumber both columns, log one activity, all inside one
+  serializable transaction with a bounded retry.
+- `server/src/modules/activities/activity.service.ts` — the metadata whitelist
+  and the deterministic `createdAt`/`id` ordering that makes paging stable.
+- `client/src/pages/BoardPage.tsx` — optimistic move plus rollback, and the
+  fallback control next to the drag handle.
+- `client/src/lib/activityText.ts` — structured fields turned into sentences in
+  the client.
+
+**Problems solved:**
+- `updatedAt` moves on every save, so a brand new comment already looked edited.
+  The "(edited)" marker uses a one-second tolerance instead of an exact compare.
+- Positions used to be seeded and created as project-wide values (the issue
+  number), which is not what a column-local order means. Creating an issue now
+  counts the issues already in its target column, and the seed uses per-column
+  values, so the board is contiguous from the first run.
+- A status change through the ordinary `PATCH .../issues/:issueId` endpoint left
+  the old column's position behind. It now moves the issue to the end of its new
+  column inside the same transaction.
+- A same-column reorder should not read as a status change, so no activity row is
+  written for it; a cross-column move writes exactly one
+  `ISSUE_STATUS_CHANGED`.
+- The shared activity feed component refetched endlessly because the parent
+  passed a new `load` function on every render. Wrapping it in `useCallback` made
+  the dependency honest instead of removing it from the dependency list.
+
+**Interview explanation:**
+Phase 6 added the collaborative layer: comments, an activity feed and a Kanban
+board. Comments are a normal relational table with an author and an issue, and
+their permissions are deliberately asymmetric — only the author may edit their
+own words, while the author, OWNER and ADMIN may delete them. The activity log is
+append-only and stores structured metadata rather than sentences, so the readable
+line ("Ada moved API-2 from To Do to In Progress") is generated in the client and
+the wording can change without a migration; on the way out the metadata passes a
+key whitelist so nothing leaks through a feed. The board is `status` for the
+column and an integer `position` for the place inside it. The interesting part is
+who owns the order: the client sends only the issue, the target status and the
+target index, and the server reads the real order, clamps the index, renumbers
+both affected columns and writes the status-change activity in one serializable
+transaction, retried a couple of times if PostgreSQL reports a write conflict.
+That is what makes concurrent reorders safe and makes a failed move a no-op. On
+the client the move is optimistic with a real rollback to the previous board, and
+dragging is never the only way to move a card — every movable card also has a
+keyboard-accessible "Move to" control, while the hidden drag handle for cards the
+user may not move is convenience, not security, because the server checks the row
+again. Realtime updates are deliberately deferred: a WebSocket layer would add a
+protocol, connection state and per-message authorization for a benefit the MVP
+does not need.

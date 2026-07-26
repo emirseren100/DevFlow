@@ -1,8 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 
+import ActivityFeed from '../components/ActivityFeed';
+import CommentSection from '../components/CommentSection';
 import { ApiError } from '../lib/apiClient';
+import { listIssueActivities } from '../lib/collaborationApi';
 import type { IssueDetail, IssuePriority, IssueStatus, IssueType, SprintSummary } from '../lib/projectApi';
 import {
   ISSUE_PRIORITIES,
@@ -94,6 +97,12 @@ export default function IssueDetailPage() {
       active = false;
     };
   }, [workspaceId, projectId, issueId]);
+
+  // Stable, so the history section refetches only when its page changes.
+  const loadActivities = useCallback(
+    (page: number) => listIssueActivities(workspaceId, projectId, issueId, page),
+    [workspaceId, projectId, issueId],
+  );
 
   async function handleSave(event: FormEvent) {
     event.preventDefault();
@@ -316,6 +325,16 @@ export default function IssueDetailPage() {
         ))}
 
       {actionError && <p role="alert">{actionError}</p>}
+
+      <CommentSection workspaceId={workspaceId} projectId={projectId} issueId={issueId} />
+
+      {/* Comments and activity stay two separate things: one is what people
+          wrote, the other is what the system recorded. */}
+      <ActivityFeed
+        heading="Issue history"
+        load={loadActivities}
+        emptyText="No recorded change yet."
+      />
     </section>
   );
 }

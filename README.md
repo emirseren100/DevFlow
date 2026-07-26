@@ -77,8 +77,8 @@ Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 | 2 | Database and Prisma | Complete |
 | 3 | Authentication and authorization | Complete |
 | 4 | Workspaces and membership | Complete |
-| 5 | Projects and issues | Not started |
-| 6 | Comments, activity and Kanban | Not started |
+| 5 | Projects and issues | Complete |
+| 6 | Comments, activity and Kanban | Complete |
 | 7 | Frontend integration | Not started |
 | 8 | Testing, Docker, CI and security | Not started |
 | 9 | UI/UX, deployment and portfolio preparation | Not started |
@@ -87,7 +87,7 @@ Full phase details: [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Current Status
 
-Phase 5 — Projects, sprints and issues is complete. What exists today:
+Phase 6 — Comments, activity and the Kanban board is complete. What exists today:
 
 - npm workspaces root with `client` and `server`
 - React + TypeScript client on port **5174**: working `/login` and `/register`
@@ -106,11 +106,18 @@ Phase 5 — Projects, sprints and issues is complete. What exists today:
   issue numbers (`API-1`, `API-2`, …) handed out inside a transaction
 - Client pages for the project list, project detail with issue filters and
   pagination, issue creation and issue detail
-- 145 passing tests: 39 client tests and 106 server tests (the authentication,
-  workspace, project, sprint and issue integration tests need the dedicated
-  test database)
+- Plain-text issue comments with author-only editing and moderated deletion
+- Project and issue activity feeds read from the `ActivityLog` rows the API
+  writes, paginated and scoped to one project
+- A Kanban board with five status columns, drag-and-drop through `@dnd-kit`, an
+  accessible non-drag move control, and server-owned ordering inside one
+  PostgreSQL transaction
+- 223 passing tests: 58 client tests and 165 server tests (the authentication,
+  workspace, project, sprint, issue, comment, activity and Kanban integration
+  tests need the dedicated test database)
 
-Not built yet: comments, activity feed, Kanban, the final UI, Docker and CI.
+Not built yet: realtime updates, notifications, attachments, labels, subtasks,
+the consolidated dashboard, the final UI, Docker and CI.
 
 Current state at any time: [docs/PROJECT_STATE.md](docs/PROJECT_STATE.md).
 
@@ -380,6 +387,107 @@ deleting a project removes its sprints, its issues and their comments; deleting
 an issue removes its comments. Users, memberships and the workspace itself are
 never touched.
 
+### Comments, activity and the Kanban board
+
+Every endpoint below requires a valid session and a membership in the workspace
+named in the URL. The chain is always re-checked in PostgreSQL: the project must
+belong to the workspace, the issue must belong to the project, and a comment must
+belong to that issue.
+
+**Comments** (plain text, no Markdown, no HTML, no mentions, no attachments)
+
+| Endpoint | Allowed | Purpose |
+|---|---|---|
+| `GET .../issues/:issueId/comments` | member | all comments, oldest first, each with `isEdited` and the caller's `canEdit` / `canDelete` |
+| `POST .../issues/:issueId/comments` | any member | add a comment; the author is always the signed-in user |
+| `PATCH .../issues/:issueId/comments/:commentId` | the author only | change the body |
+| `DELETE .../issues/:issueId/comments/:commentId` | the author, `OWNER`, `ADMIN` | delete the comment (never the issue) |
+
+A body is trimmed first, then must be 1–5000 characters, so a whitespace-only
+comment returns `400 VALIDATION_ERROR`. Editing is the author's own voice: an
+`OWNER` or an `ADMIN` may **delete** somebody else's comment but never rewrite
+it. A comment id from another issue returns `404 COMMENT_NOT_FOUND`.
+
+**Activity**
+
+| Endpoint | Allowed | Purpose |
+|---|---|---|
+| `GET .../projects/:projectId/activities` | member | project feed, newest first |
+| `GET .../projects/:projectId/issues/:issueId/activities` | member | history of one issue |
+
+Both accept `page`, `limit` (default 20, maximum 100) and an optional `type`, and
+both return `activities` plus the same `pagination` metadata as the issue list.
+Rows are ordered by `createdAt` descending with the id as the tie-breaker. Each
+row carries the type, a safe actor (`id`, `name`, `email`, or `null` for a future
+system action), the project, the issue summary with its display key, and
+whitelisted metadata only — the sentence itself ("Ada moved API-2 from To Do to
+In Progress") is generated in the client, never stored.
+
+Activity is written for meaningful state changes only: `WORKSPACE_CREATED`,
+`MEMBER_ADDED`, `PROJECT_CREATED`, `ISSUE_CREATED`, `ISSUE_UPDATED`,
+`ISSUE_STATUS_CHANGED`, `ISSUE_ASSIGNED`, `COMMENT_CREATED`. Reads, filters and
+failed validations are never logged.
+
+**Kanban board**
+
+| Endpoint | Allowed | Purpose |
+|---|---|---|
+| `GET .../projects/:projectId/board` | member | the five columns in board order, each with its cards |
+| `PATCH .../projects/:projectId/issues/:issueId/move` | `OWNER`, `ADMIN`, reporter, assignee | change status and position |
+
+The board is one query. A card carries only summary data — display key, title,
+type, priority, status, position, assignee, reporter, sprint, due date and the
+`canMove` / `canEdit` flags — never the description or the comments.
+
+The move body is exactly two fields:
+
+```json
+{ "targetStatus": "IN_PROGRESS", "targetIndex": 0 }
+```
+
+**Movement permissions.** `OWNER` and `ADMIN` may move any issue. A `MEMBER` may
+move only an issue they reported or are assigned to; an unrelated member sees the
+card but gets `403 FORBIDDEN`. The client hides the drag handle when `canMove` is
+false, which is convenience, not protection — the server checks the row again.
+
+**Ordering.** `Issue.position` is a column-local integer: every status column is
+`0, 1, 2, …`. The server reads the real order, inserts the card at the requested
+index, renumbers both affected columns and writes everything in one serializable
+transaction, retried a bounded number of times on a write conflict. A negative
+`targetIndex` is rejected with `400 VALIDATION_ERROR`; an index past the end of
+the destination column is **clamped** to the end. The response is the confirmed
+board, so the client renders the server's result instead of its own guess, and a
+failed move rolls back to the previous board. Moving to a different column writes
+one `ISSUE_STATUS_CHANGED` row; reordering inside one column writes none.
+
+New error code: `COMMENT_NOT_FOUND` (404).
+
+Client routes: `.../projects/:projectId/board` (Kanban board),
+`.../projects/:projectId/activity` (project feed), and the issue detail page now
+also shows the comment section and the issue history. Every project page links
+between **Issues**, **Board** and **Activity**.
+
+**Manual test**
+
+1. `npm run db:seed`, `npm run dev`, then sign in as `ada@devflow.local`.
+2. Open a project, then **Board**: the seeded issues appear in their five
+   columns in position order.
+3. Drag a card to another column, or use its "Move … to" select. The card stays
+   where the server put it and the columns stay contiguous after a reload.
+4. Open an issue, add a comment, edit it, and delete it after the confirmation.
+5. Open **Activity**: the created issue, the status change and the comment appear
+   as readable sentences.
+6. Sign in as `ceyda@devflow.local` (`MEMBER`) and open the board: cards she
+   neither reported nor is assigned to have no drag handle and no move control.
+   A hand-made request is still rejected:
+
+```bash
+curl -i -X PATCH http://localhost:4000/api/workspaces/<ws>/projects/<prj>/issues/<issue>/move -H "Content-Type: application/json" -b "devflow_session=<cookie>" -d "{\"targetStatus\":\"DONE\",\"targetIndex\":0}"
+```
+
+Realtime updates are **not** implemented: another person's move appears after a
+reload. There are no notifications and no emails.
+
 **Manual test**
 
 1. `npm run db:seed`, then `npm run dev` and sign in as `ada@devflow.local`
@@ -441,6 +549,20 @@ npm run test:sprints
 
 ```bash
 npm run test:issues
+```
+
+The Phase 6 suites too:
+
+```bash
+npm run test:comments
+```
+
+```bash
+npm run test:activities
+```
+
+```bash
+npm run test:kanban
 ```
 
 **Connection pool.** The local disposable `prisma dev` server drops connections
