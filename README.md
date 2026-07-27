@@ -16,7 +16,7 @@ GitHub Actions
 
 ## Live demo
 
-_Not deployed yet._ The repository is prepared for a one-service, same-origin
+(https://devflow-902d.onrender.com) The repository is prepared for a one-service, same-origin
 deployment on Render (see [Production deployment](#production-deployment) and
 [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)). This section will carry the URL once
 the service exists.
