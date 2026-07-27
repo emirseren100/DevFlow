@@ -645,6 +645,85 @@ stacks the filter bar and gives page and dialog actions full-width touch
 targets, and the Kanban board scrolls sideways at every width because five
 columns squeezed into a phone are unreadable, not responsive.
 
+## 9.6 Production Deployment — One Same-Origin Service (Phase 9B)
+
+Local development runs **two** origins: the Vite dev server on `http://localhost:5174`
+and the API on `http://localhost:4000`. Production runs **one**:
+
+```
+Browser
+  │  https://<app>.onrender.com
+  ▼
+Render Web Service  (one Docker container, one Node process)
+  ├─ GET  /api/health          public
+  ├─ *    /api/*               the Express API
+  ├─ *    /api/<unknown>       JSON 404 — never HTML
+  └─ GET  /<anything else>     client/dist  →  index.html
+  │
+  ▼  private network
+Render PostgreSQL  (devflow-db)
+```
+
+**Why one origin.** The session lives in a cookie. On one origin that cookie is
+first-party: `SameSite=Lax` keeps its full meaning, the `Origin` check compares
+one exact string, and no CORS exception is needed for the real client. A split
+deployment — client on one host, API on another — would make every authenticated
+request cross-site and force `SameSite=None`, which browsers increasingly
+restrict.
+
+**Express serving the client** (`server/src/middleware/serveClient.ts`). Mounted
+after every router *and* after the API's own 404, so `/api/does-not-exist` is
+already answered with JSON before the client router exists. Then:
+
+1. `express.static(client/dist)` — hashed assets, cached; source maps refused
+2. a `GET`/`HEAD` fallback returning `index.html`, so a refresh on
+   `/app/workspaces/…/board` returns the same document the first load returned
+
+The directory is found by walking up from the module's own location, which lands
+on `<repo>/client/dist` from both `server/src/` and the compiled
+`server/dist/`; `CLIENT_DIST_PATH` overrides it. The whole block only runs when
+`config.serveClient` is true, which defaults to `NODE_ENV=production` — so a
+local `npm run dev` still uses Vite, and the Docker Compose stack (where nginx
+serves the client) simply finds no build and logs that it is serving the API
+only.
+
+**The API base URL.** The production bundle is built with `VITE_API_URL=/api` —
+a relative path, so every request goes to the page's own origin and no
+deployment hostname is compiled into the JavaScript. `client/src/lib/env.ts`
+accepts an absolute `http(s)` URL *or* a single-slash path, and rejects a
+protocol-relative value like `//evil.example/api`.
+
+**Port and origin on Render.** The platform assigns `PORT` and publishes
+`RENDER_EXTERNAL_URL`. The trusted origin is resolved as `CLIENT_ORIGIN` →
+`RENDER_EXTERNAL_URL` → `http://localhost:5174` (outside production only). In
+production there is no fallback: without a resolvable origin the process refuses
+to start. `trust proxy` is set to exactly one hop, so the login rate limiter
+counts the real caller behind Render's HTTPS proxy rather than the proxy itself.
+
+**The Content-Security-Policy** is switched on exactly when this process serves
+a document — `default-src 'self'`, no framing, no object, scripts and API calls
+from the same origin only. When the API answers JSON alone there is no document
+here to protect and it stays off, as in Phase 8.
+
+**Migrations.** The container starts with `npm run start:production`, which is
+`prisma migrate deploy && node dist/server.js`. Committed migrations are
+replayed — never authored, never reset — and the `&&` means a failed migration
+stops the container instead of serving an application against a stale schema.
+The development seed is never run: production starts empty and its first account
+is created through `/register`.
+
+**Health check.** `GET /api/health` is public, needs no session and touches no
+table. Render calls it before routing traffic to a new deployment, so a
+container that cannot answer never replaces the running one.
+
+**The image.** `Dockerfile.production` at the repository root: one multi-stage
+build that installs the workspace with `npm ci`, generates the Prisma Client,
+builds the client and the server, then copies the compiled server, the built
+client, the schema and the migration history into a runtime image with
+production dependencies only, running as the unprivileged `node` user. The
+Phase 8 `client/Dockerfile` and `server/Dockerfile` are untouched and still
+serve Docker Compose.
+
 ## 10. Docker Compose
 
 - Local development starts with Compose providing **PostgreSQL** (and optionally
@@ -662,6 +741,10 @@ columns squeezed into a phone are unreadable, not responsive.
   `SESSION_COOKIE_NAME`, `SESSION_TTL_DAYS`. There is no `SESSION_SECRET`:
   sessions are random tokens looked up in the database, not signed data, so
   there is nothing to sign.
+- Production adds `RENDER_EXTERNAL_URL` (supplied by the platform, used as the
+  trusted origin when `CLIENT_ORIGIN` is unset) and the optional `SERVE_CLIENT`
+  and `CLIENT_DIST_PATH`, which decide whether — and from where — this process
+  serves the built client.
 - `server/.env.test` holds the dedicated test database URL and is git-ignored
   like `.env`.
 - Client keys must be prefixed `VITE_` to be exposed by Vite — and therefore

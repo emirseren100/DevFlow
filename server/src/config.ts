@@ -20,27 +20,56 @@ function numeric(label: string) {
 }
 
 /** `http://localhost:5174` — an absolute origin with no path and no trailing slash. */
-const originSchema = z
+function originSchemaFor(label: string) {
+  return z
+    .string()
+    .trim()
+    .refine((value) => {
+      try {
+        const url = new URL(value);
+
+        return (
+          (url.protocol === 'http:' || url.protocol === 'https:') &&
+          url.pathname === '/' &&
+          !value.endsWith('/')
+        );
+      } catch {
+        return false;
+      }
+    }, `${label} must be an absolute http(s) origin without a path, for example http://localhost:5174.`);
+}
+
+const originSchema = originSchemaFor('CLIENT_ORIGIN');
+
+/** The origin a local `npm run dev` uses. Never applied in production. */
+const LOCAL_CLIENT_ORIGIN = 'http://localhost:5174';
+
+/**
+ * Render publishes the service address as `RENDER_EXTERNAL_URL`. It is written
+ * without a trailing slash, but one is stripped anyway so a hand-typed value in
+ * the dashboard cannot fail the origin rule.
+ */
+const renderExternalUrlSchema = z
   .string()
   .trim()
-  .refine((value) => {
-    try {
-      const url = new URL(value);
+  .transform((value) => value.replace(/\/+$/, ''))
+  .pipe(originSchemaFor('RENDER_EXTERNAL_URL'));
 
-      return (
-        (url.protocol === 'http:' || url.protocol === 'https:') &&
-        url.pathname === '/' &&
-        !value.endsWith('/')
-      );
-    } catch {
-      return false;
-    }
-  }, 'CLIENT_ORIGIN must be an absolute http(s) origin without a path, for example http://localhost:5174.');
-
-const envSchema = z.object({
+const baseEnvSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
+  // Render (and every other platform) assigns the port; 4000 is the local
+  // fallback only.
   PORT: numeric('PORT').default(4000),
-  CLIENT_ORIGIN: originSchema.default('http://localhost:5174'),
+  // No default here: the default depends on NODE_ENV and is applied below, so
+  // production can never silently trust http://localhost:5174.
+  CLIENT_ORIGIN: originSchema.optional(),
+  RENDER_EXTERNAL_URL: renderExternalUrlSchema.optional(),
+  // Whether this process also serves the built React client. Defaults to
+  // "production", which is the same-origin deployment; a value here is only
+  // needed to switch it off, or on for a local production rehearsal.
+  SERVE_CLIENT: z.enum(['true', 'false']).optional(),
+  // Where the built client lives, when it is not next to the server output.
+  CLIENT_DIST_PATH: z.string().trim().min(1).optional(),
   // No default: a wrong database URL should fail loudly, not silently connect
   // somewhere unexpected. Only database code reads this value.
   DATABASE_URL: z.string().trim().min(1, 'DATABASE_URL is required.'),
@@ -55,6 +84,39 @@ const envSchema = z.object({
   // Attempts allowed per IP on login and register inside the window below.
   AUTH_RATE_LIMIT_MAX: numeric('AUTH_RATE_LIMIT_MAX').default(10),
   AUTH_RATE_LIMIT_WINDOW_MINUTES: numeric('AUTH_RATE_LIMIT_WINDOW_MINUTES').default(15),
+});
+
+/**
+ * Resolves the one origin the deployed application is served from.
+ *
+ * Exactly one origin is trusted, in this order:
+ *
+ * 1. `CLIENT_ORIGIN` — set by hand, for a custom domain
+ * 2. `RENDER_EXTERNAL_URL` — the address the platform itself publishes
+ * 3. `http://localhost:5174` — **outside production only**
+ *
+ * Production has no fallback on purpose. Guessing an origin would either block
+ * the real client or trust an address nobody chose, and both are worse than a
+ * container that refuses to start with a readable message.
+ */
+const envSchema = baseEnvSchema.transform((env, ctx) => {
+  const resolvedOrigin =
+    env.CLIENT_ORIGIN ??
+    env.RENDER_EXTERNAL_URL ??
+    (env.NODE_ENV === 'production' ? undefined : LOCAL_CLIENT_ORIGIN);
+
+  if (!resolvedOrigin) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['CLIENT_ORIGIN'],
+      message:
+        'CLIENT_ORIGIN is required in production when RENDER_EXTERNAL_URL is not provided, for example https://devflow.example.com.',
+    });
+
+    return z.NEVER;
+  }
+
+  return { ...env, CLIENT_ORIGIN: resolvedOrigin };
 });
 
 export type ServerEnv = z.infer<typeof envSchema>;
@@ -91,6 +153,10 @@ export const config = {
   isTest: env.NODE_ENV === 'test',
   port: env.PORT,
   clientOrigin: env.CLIENT_ORIGIN,
+  // The same process answers the API and serves the built client in the
+  // same-origin deployment; a local `npm run dev` keeps using the Vite server.
+  serveClient: env.SERVE_CLIENT ? env.SERVE_CLIENT === 'true' : isProduction,
+  clientDistPath: env.CLIENT_DIST_PATH,
   databaseUrl: env.DATABASE_URL,
   databasePoolMax: env.DATABASE_POOL_MAX,
   sessionCookieName: env.SESSION_COOKIE_NAME,

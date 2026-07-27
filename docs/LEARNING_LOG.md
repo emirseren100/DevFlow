@@ -944,3 +944,65 @@ interrupts the way it should. Sixteen existing tests broke because the wording
 and structure they asserted genuinely changed; I updated each one and added
 seven new ones for the behaviour the phase introduced — the collapsible
 navigation, the dialog's accessibility contract and the shared 403 state.
+
+## Phase 9B — Production Deployment Preparation
+
+**A production build is a different program.** Locally the client is a dev
+server on 5174 and the API is a separate process on 4000; in production there is
+one Node process serving compiled JavaScript and a folder of hashed static
+files. Vite inlines every `VITE_` value at build time, so the production API
+base is decided when the image is built, not when the container starts — which
+is why it is a Docker build argument and not a runtime environment variable.
+
+**Same-origin deployment is a security decision, not a hosting shortcut.** I
+could have put the client on one host and the API on another. Then every
+authenticated request would be cross-site, `SameSite=Lax` would stop protecting
+anything useful, and the cookie would need `SameSite=None` — which browsers keep
+restricting. Serving both from one Express process keeps the cookie first-party,
+removes CORS from the real client's path entirely, and makes the origin check
+one exact string comparison. The cost is about ninety lines of middleware and
+one ordering rule: the API's own JSON 404 must be mounted **before** the SPA
+fallback, or an unknown `/api` address would silently return an HTML document to
+something expecting JSON.
+
+**Platform environment variables are the platform's job.** Render assigns `PORT`
+and publishes `RENDER_EXTERNAL_URL`, so the application must read them rather
+than hardcode anything. The interesting part was the *absence* case: production
+now resolves its trusted origin as `CLIENT_ORIGIN` → `RENDER_EXTERNAL_URL` →
+nothing, and "nothing" is a startup failure with a readable message. A default
+of `localhost` would have looked like it worked and refused every real mutation.
+
+**Managed PostgreSQL removes the operational work, not the design work.** The
+Blueprint references the database by name and Render injects the connection
+string, so no credential exists in git. What is still mine to get right is the
+pool size, the region matching the service, and knowing that a free database has
+an expiry date.
+
+**Migrations belong to the deployment, not to a person.** The start command is
+`prisma migrate deploy && node dist/server.js`. `deploy` only replays committed
+migrations — it cannot author one and cannot reset a database — and the `&&`
+means a failed migration stops the container rather than serving an application
+against a stale schema. That single `&&` is the whole safety property.
+
+**A health check is a contract.** `GET /api/health` is public, needs no session
+and touches no table, so the platform can ask "are you ready?" without
+authenticating. Render will not route traffic to a deployment that cannot answer
+it, which is what makes a bad deploy a non-event instead of an outage.
+
+**Infrastructure as code pays off in explanation, not just automation.**
+`render.yaml` describes both resources, the health path, the Dockerfile and every
+non-secret variable in one reviewable file. I can hand it to someone and they can
+see the whole deployment without a screen-share of a dashboard.
+
+**Repository hygiene is a five-minute check with a permanent consequence.** I
+scanned the tracked files for env files, build output, connection strings and
+key-shaped strings before pushing anything, because a secret in git history stays
+in git history — the fix is rotating the secret, not deleting the file.
+
+**Verification means running the thing.** The image built cleanly and every test
+passed, and the container still refused to start: Prisma `P1013`, because an
+*empty* `shadowDatabaseUrl` in `prisma.config.ts` is not the same as no shadow
+URL, and `migrate deploy` rejects it. It never appeared locally because the
+variable was always set there. Nothing in the type system, the test suite or the
+build output could have found that — only running the production image against a
+throwaway database did.

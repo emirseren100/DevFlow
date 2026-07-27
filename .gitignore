@@ -53,6 +53,15 @@ lerna-debug.log*
 # Docker local volumes
 docker-data/
 postgres-data/
+pgdata/
+
+# Database dumps — they contain real rows, and never belong in git
+*.dump
+*.sql.gz
+*.sqlite
+*.sqlite3
+dump.sql
+backup.sql
 
 # IDE / editors
 .idea/

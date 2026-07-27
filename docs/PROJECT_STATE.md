@@ -7,12 +7,27 @@
 
 ## Current Phase
 
-**Phase 9A — Final UI/UX Refinement and Browser QA — COMPLETED.** The
-application has one visual language, the pages were inspected and exercised in a
-real browser with seeded data as OWNER, ADMIN and MEMBER, and typecheck, the
-full test suite, the production build and `docker compose config` all pass.
-Phase 9B (GitHub, deployment and portfolio preparation) has not started, and
-nothing has been committed, pushed or deployed.
+**Phase 9B — Production Deployment Preparation — CODE PREPARATION COMPLETED.**
+The repository is ready to deploy as **one same-origin Render Web Service** with
+**one Render PostgreSQL**: the production client uses `/api`, Express serves the
+built React client for non-API routes, the server respects the platform `PORT`
+and resolves its trusted origin safely, `Dockerfile.production` and `render.yaml`
+exist, and migrations run before the server starts. Typecheck, 314 tests,
+coverage, the build and `docker compose config` all pass, and the production
+image was **built and run locally** against a throwaway database.
+
+**Still pending, and all manual:**
+
+| Step | Status |
+|---|---|
+| Push to GitHub | **Pending** — the local history has 5 commits, no remote |
+| Render Blueprint and deployment | **Pending** — no Render resource exists |
+| Live URL | **Pending** — nothing is deployed |
+| README screenshots and demo link | **Pending** — placeholders |
+| Post-deployment checks in `docs/FINAL_QA.md` | **Pending** |
+
+Nothing has been pushed or deployed, and no GitHub or Render resource was
+created by this phase.
 
 ## Completed Work
 
@@ -35,6 +50,10 @@ nothing has been committed, pushed or deployed.
   protection for mutations, a JSON body limit, production-safe errors, test
   hardening and coverage, multi-stage Dockerfiles, a Docker Compose stack and a
   GitHub Actions CI workflow.
+- Phase 9B: same-origin production configuration, an Express static client with
+  an SPA fallback, safe origin resolution, `Dockerfile.production`,
+  `render.yaml`, a production start script, deployment and portfolio
+  documentation, and a verified production container.
 - Phase 9A: one CSS token set and visual language, a shared confirmation
   dialog, human labels for every enum, polished authentication, dashboard,
   workspace, member, project, issue, Kanban, comment and activity screens, and
@@ -118,6 +137,76 @@ touched: the phase changed markup, CSS and user-facing wording only. New label
 maps (`TYPE_LABELS`, `PROJECT_STATUS_LABELS`, `SPRINT_STATUS_LABELS` in
 `projectApi.ts`, `ROLE_LABELS` in `workspaceApi.ts`) turn the database enums
 into readable words in the client, so `IN_PROGRESS` never reaches a screen.
+
+Phase 9B added:
+
+```
+Dockerfile.production                  the one deployment image (multi-stage)
+render.yaml                            Blueprint: web service + PostgreSQL
+server/src/middleware/serveClient.ts   static client + SPA fallback
+server/src/test/deployment.test.ts     origin resolution, SPA fallback, API 404
+client/src/test/deployment.test.ts     the API base parser
+docs/DEPLOYMENT.md | INTERVIEW_GUIDE.md | PORTFOLIO_COPY.md | FINAL_QA.md
+```
+
+**No migration and no API change in Phase 9B.** No product behaviour changed.
+
+## Production Deployment (Phase 9B)
+
+**One origin.** In production a single Express process answers `/api/*` and
+serves `client/dist` for every other address, so the session cookie stays
+first-party and `SameSite=Lax` keeps its meaning. Order in `createApp()`:
+routers → `app.use('/api', notFound)` → client router → global 404 → error
+handler. An unknown `/api` address is therefore always JSON and can never fall
+through to `index.html`.
+
+**Client API base.** The production bundle is built with `VITE_API_URL=/api`
+(set in `Dockerfile.production`, not in a tracked `.env`). `client/src/lib/env.ts`
+now accepts an absolute `http(s)` URL **or** a single-slash path, and rejects a
+protocol-relative value such as `//evil.example/api`. Local development is
+unchanged: `http://localhost:4000/api`.
+
+**Origin resolution** (`config.ts`): `CLIENT_ORIGIN` → `RENDER_EXTERNAL_URL` →
+`http://localhost:5174` **outside production only**. Production without either
+of the first two fails at startup with a named-variable message. The comparison
+stays exact — no wildcard, no prefix, no substring. `trust proxy` is set to one
+hop in production so the login limiter counts the real caller.
+
+**New environment keys:** `RENDER_EXTERNAL_URL` (platform-supplied),
+`SERVE_CLIENT` (defaults to `NODE_ENV=production`), `CLIENT_DIST_PATH`
+(override; default is `<repo>/client/dist`, resolved from the module's own
+location so it works from `dist/` and from `src/`).
+
+**Cookie in production, unchanged:** `httpOnly`, `secure`, `sameSite=lax`,
+`path=/`, **no** `Domain`. Verified in the running container.
+
+**CSP.** Helmet's Content-Security-Policy is now switched on exactly when this
+process serves a document (`config.serveClient`): `default-src 'self'`,
+`frame-ancestors 'none'`, `object-src 'none'`, `script-src 'self'`,
+`style-src 'self' 'unsafe-inline'`, `img-src/font-src 'self' data:`,
+`connect-src 'self'`. The API-only setups (development, Docker Compose) keep it
+off, as in Phase 8.
+
+**Startup.** `npm run start:production` (root and server) is
+`prisma migrate deploy && node dist/server.js`. A failed migration stops the
+container; the seed is never run; nothing resets a database.
+
+**Image.** `Dockerfile.production` — install with `npm ci`, generate the Prisma
+Client, build client, build server, then a runtime stage with production
+dependencies only, the compiled server, `client/dist`, the schema and the
+migrations, running as `node`. The Phase 8 `client/Dockerfile` and
+`server/Dockerfile` are untouched and Compose still works.
+
+**Blueprint.** `render.yaml`: one Docker web service (`devflow`,
+`healthCheckPath: /api/health`, `dockerfilePath: ./Dockerfile.production`,
+branch `main`, auto-deploy) and one database (`devflow-db`), with `DATABASE_URL`
+taken `fromDatabase`. No credential, no GitHub username and no onrender.com URL
+is written down. Both plans are `free` and **must be reviewed** before deploying.
+
+**Fixed in this phase:** `prisma.config.ts` passed `shadowDatabaseUrl: ''`, and
+`prisma migrate deploy` rejects an empty string (`P1013`), so the production
+container would not start. The key is now omitted entirely when
+`SHADOW_DATABASE_URL` is unset. Found by running the image, not by any test.
 
 ## Visual System (Phase 9A)
 
@@ -347,7 +436,8 @@ step uses `continue-on-error`. The workflow does not deploy.
 | Command | Result |
 |---|---|
 | `npm run dev` | client 5174 + server 4000 |
-| `npm run typecheck` / `npm test` / `npm run build` | pass (284 tests) |
+| `npm run typecheck` / `npm test` / `npm run build` | pass (314 tests) |
+| `npm run start:production` | `prisma migrate deploy` then the compiled server (production only) |
 | `npm run test:client` / `npm run test:server` | one side only |
 | `npm run test:coverage` | text + HTML + lcov, both workspaces |
 | `npm run db:deploy` | `prisma migrate deploy` (containers and CI use this) |
@@ -357,6 +447,30 @@ step uses `continue-on-error`. The workflow does not deploy.
 | `npm run db:test:prepare` | apply migrations to the test database |
 | `npm run test:auth` / `test:workspaces` / `test:projects` / `test:sprints` / `test:issues` / `test:comments` / `test:activities` / `test:kanban` / `test:dashboard` / `test:security` | one server suite only |
 | `npm run db:studio` | Prisma Studio (manual use only) |
+
+## Verification Status (Phase 9B)
+
+| Check | Status |
+|---|---|
+| `npm run typecheck` | Passed |
+| `npm test` | Passed — client 96, server 218 (**314 total**) |
+| `npm run test:coverage` | Passed — client 92.91% lines, server 94.88% lines |
+| `npm run build` | Passed — client CSS 18.97 kB (3.95 kB gzip), JS 386.82 kB (117.26 kB gzip) |
+| `docker compose config` | Passed |
+| `docker build -f Dockerfile.production` | **Passed** |
+| Production container against a throwaway PostgreSQL | **Passed** — migrations applied, then the server listened |
+| `GET /api/health` from the container | 200 `{"success":true,"data":{"status":"ok"}}` |
+| `GET /` and a nested React route | 200 `text/html`, the client entry both times |
+| `GET /api/does-not-exist` | 404 **JSON**, not HTML |
+| `GET /assets/<hashed>.js` | 200 |
+| Response headers | CSP present, HSTS present, `X-Content-Type-Options: nosniff` |
+| `Set-Cookie` in production | `HttpOnly; Secure; SameSite=Lax; Path=/`, no `Domain` |
+| Mutation with a foreign `Origin` | 403 |
+| Mutation with **no** `Origin` in production | 403 |
+| Protected API route without a session | 401 `UNAUTHENTICATED` |
+| Development database | **Untouched** — verification used a disposable container, removed afterwards |
+| Tracked-file secret scan | Clean — only `.env.example` files, no dumps, no `dist`, no `coverage` |
+| GitHub push / Render deployment | **Not performed** |
 
 ## Verification Status (Phase 9A)
 
@@ -457,11 +571,19 @@ step uses `continue-on-error`. The workflow does not deploy.
   covered by that phase's tests.
 - No visual regression testing: the tests assert structure, roles and wording,
   never pixels or snapshots.
-- **Docker runtime is still unverified.** `docker compose config` now passes
-  on this machine, but no image has been built and no container started here,
-  so `build`, `up`, the PostgreSQL healthcheck, the migration step, the client
-  on 5175 and a React Router refresh inside the container remain **manually
-  pending**.
+- **The Docker Compose runtime is still unverified.** `docker compose config`
+  passes and the *production* image has now been built and run, but the Compose
+  stack itself — `up`, the PostgreSQL healthcheck, the nginx client on 5175 —
+  has still never been started on this machine.
+- **Nothing is deployed.** No GitHub remote, no Render service, no live URL.
+  The deployment is prepared and rehearsed locally only.
+- The production rehearsal ran over `http://localhost`, so **login could not be
+  tested there**: the production cookie is `Secure` and a browser only stores it
+  over HTTPS. Authentication over the real HTTPS origin is a post-deployment
+  check in `docs/FINAL_QA.md`.
+- The Render plans in `render.yaml` are `free` for both resources. A free web
+  service sleeps when idle and a free database is time-limited — the user must
+  review pricing before deploying.
 - The rate-limit counter is per process and in memory: it resets on restart and
   is not shared between instances. A multi-instance deployment needs a shared
   store.
@@ -479,9 +601,19 @@ step uses `continue-on-error`. The workflow does not deploy.
 
 ## Next Task
 
-**Phase 9B — GitHub, deployment and portfolio preparation.** Commit the Phase
-8 and 9A work and push it (nothing has been committed yet), complete the Docker
-runtime verification listed above, then choose a host and a managed PostgreSQL
-and deploy — revisiting the cookie, CORS, origin and Content-Security-Policy
-rules for that real topology. Finally take the screenshots and write the
-portfolio material the README still marks as a placeholder.
+**Phase 9B — the manual half.** Everything left needs the user's own accounts,
+so none of it was done automatically:
+
+1. Commit the Phase 9B changes.
+2. Create the GitHub repository and push `main` without squashing the history;
+   wait for the CI run to go green.
+3. Create the Render Blueprint from `render.yaml` — **review both `plan:` lines
+   and both `region:` lines first**.
+4. Watch the first deployment: the migration log, then `/api/health`.
+5. Register the first account through `/register` and build demonstration data
+   through the UI. Never seed production.
+6. Take the screenshots, put the live URL in the README, and work through
+   `docs/FINAL_QA.md`.
+
+Step-by-step instructions, including failure handling and rollback:
+`docs/DEPLOYMENT.md`.

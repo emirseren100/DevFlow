@@ -1,0 +1,96 @@
+# DevFlow — the deployment image.
+#
+# One image, one process, one origin: Express answers /api/* and serves the
+# built React client for every other address. That is what keeps the session
+# cookie same-origin in production.
+#
+# Build from the repository root, because the lockfile and the workspace
+# definition live there:
+#
+#   docker build -f Dockerfile.production -t devflow:production .
+#
+# The Docker Compose stack is unaffected: it keeps using client/Dockerfile and
+# server/Dockerfile, which stay a two-container development setup.
+#
+# Debian slim rather than Alpine: @node-rs/argon2 is a native module that ships
+# ready-made glibc binaries, so nothing is compiled inside the image.
+FROM node:22-bookworm-slim AS base
+WORKDIR /app
+ENV NPM_CONFIG_UPDATE_NOTIFIER=false
+
+# ---------------------------------------------------------------------------
+# 1. Dependencies. Only the manifests are copied first, so this layer is reused
+#    by every build that changed source code only.
+# ---------------------------------------------------------------------------
+FROM base AS deps
+COPY package.json package-lock.json ./
+COPY client/package.json client/package.json
+COPY server/package.json server/package.json
+# `npm ci` installs exactly the lockfile: the build is reproducible and can
+# never pick up a newer version by surprise.
+RUN npm ci
+
+# ---------------------------------------------------------------------------
+# 2. + 3. + 4. Prisma Client, then the client bundle, then the server bundle.
+# ---------------------------------------------------------------------------
+FROM deps AS build
+
+# Same-origin production API base. Vite inlines every VITE_ value at build
+# time, so this is a build argument and not a runtime variable — and nothing
+# secret may ever be passed here, because it ends up readable in the shipped
+# JavaScript.
+ARG VITE_API_URL=/api
+ENV VITE_API_URL=$VITE_API_URL
+
+COPY server/tsconfig.json server/tsconfig.build.json server/prisma.config.ts server/
+COPY server/prisma server/prisma
+COPY server/src server/src
+COPY client/tsconfig.json client/vite.config.ts client/index.html client/
+COPY client/src client/src
+
+RUN npm run db:generate --workspace server \
+    && npm run build --workspace client \
+    && npm run build --workspace server
+
+# ---------------------------------------------------------------------------
+# 5. Runtime: production dependencies and compiled output only. No TypeScript
+#    compiler, no test tooling, no source, no .env file, no git metadata.
+# ---------------------------------------------------------------------------
+FROM base AS runtime
+ENV NODE_ENV=production
+
+COPY package.json package-lock.json ./
+COPY client/package.json client/package.json
+COPY server/package.json server/package.json
+# 9. Runtime dependencies only. The Prisma CLI is a normal dependency, which is
+#    what lets the container apply migrations at start.
+RUN npm ci --omit=dev && npm cache clean --force
+
+# 6. The compiled server, including the generated Prisma Client under dist/.
+COPY --from=build /app/server/dist server/dist
+# 7. The built client. `client/dist` next to `server/dist` is exactly where the
+#    server's own path calculation looks.
+COPY --from=build /app/client/dist client/dist
+# 8. The schema and the migration history: `prisma migrate deploy` reads both.
+COPY --from=build /app/server/prisma server/prisma
+COPY --from=build /app/server/prisma.config.ts server/prisma.config.ts
+
+# `node` is an unprivileged user that already exists in the official image.
+USER node
+
+# Documentation only — the platform assigns the real port through PORT, and the
+# server listens on it. 4000 stays the local fallback.
+EXPOSE 4000
+
+# The public health endpoint is the honest readiness signal, and Node can call
+# it without adding curl to the image.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=25s --retries=3 \
+  CMD node -e "const p=process.env.PORT||4000;fetch('http://127.0.0.1:'+p+'/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+
+# 10. Apply the committed migrations, then start the compiled server. The two
+#     are chained with && inside the npm script, so a failed migration stops the
+#     container instead of starting an application against a stale schema.
+#     `migrate deploy` never rewrites a migration, never asks a question and
+#     never resets a database — unlike `migrate dev`. The development seed is
+#     deliberately never run here.
+CMD ["npm", "run", "start:production", "--workspace", "server"]

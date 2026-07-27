@@ -1,0 +1,67 @@
+# DevFlow — Render Blueprint (infrastructure as code).
+#
+# Two managed resources and nothing else:
+#
+#   devflow      one Docker web service — the API and the built React client
+#   devflow-db   one managed PostgreSQL database
+#
+# The service is built from Dockerfile.production with the repository root as
+# its build context, and Render checks GET /api/health before it routes traffic
+# to a new deployment. Migrations are applied by the container itself at start
+# (`prisma migrate deploy`), so a schema change ships with the code that needs
+# it.
+#
+# No secret is stored in this file. DATABASE_URL is read from the managed
+# database by name, and Render generates the credentials.
+#
+# BEFORE DEPLOYING: review the plans and the region below. `free` instances
+# sleep after inactivity and a free PostgreSQL database expires after a limited
+# trial period — check Render's current pricing and availability, then change
+# the two `plan:` lines if you need something permanent.
+
+services:
+  - type: web
+    name: devflow
+    runtime: docker
+    # Frankfurt is the closest region to the author. Any Render region works;
+    # keep the database in the same one, or every query pays for the distance.
+    region: frankfurt
+    plan: free
+    # The branch Render deploys from. Every push to it triggers a new build.
+    branch: main
+    autoDeploy: true
+    dockerfilePath: ./Dockerfile.production
+    dockerContext: .
+    # Public, unauthenticated, and it is the whole readiness contract: a
+    # deployment that cannot answer this never replaces the running one.
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # The connection string of the database below. Render fills it in; it is
+      # never written down here.
+      - key: DATABASE_URL
+        fromDatabase:
+          name: devflow-db
+          property: connectionString
+      - key: DATABASE_POOL_MAX
+        value: 10
+      # The session cookie name. Not a secret: only the SHA-256 hash of the
+      # token it carries is stored, so there is nothing to sign or to protect.
+      - key: SESSION_COOKIE_NAME
+        value: devflow_session
+      - key: SESSION_TTL_DAYS
+        value: 7
+    # PORT and RENDER_EXTERNAL_URL are provided by the platform. The server
+    # listens on PORT and trusts RENDER_EXTERNAL_URL as its single allowed
+    # origin, so neither belongs here. Set CLIENT_ORIGIN in the dashboard only
+    # when a custom domain replaces the onrender.com address.
+
+databases:
+  - name: devflow-db
+    databaseName: devflow
+    user: devflow
+    region: frankfurt
+    plan: free
+    # A single application connects to it; no other service needs access.
+    ipAllowList: []

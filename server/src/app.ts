@@ -8,6 +8,11 @@ import { errorHandler } from './middleware/errorHandler.js';
 import { notFound } from './middleware/notFound.js';
 import { createAuthRateLimiter } from './middleware/rateLimit.js';
 import { requireAllowedOrigin } from './middleware/requireAllowedOrigin.js';
+import {
+  createClientRouter,
+  hasClientBuild,
+  resolveClientDistPath,
+} from './middleware/serveClient.js';
 import { activityRouter } from './modules/activities/activity.routes.js';
 import { authRouter } from './modules/auth/auth.routes.js';
 import { commentRouter } from './modules/comments/comment.routes.js';
@@ -43,14 +48,42 @@ export function createApp() {
   // for and helps nobody else.
   app.disable('x-powered-by');
 
-  // Sensible security headers. `contentSecurityPolicy` is off because this
-  // process only answers JSON: a CSP protects a *document*, and the one that
-  // matters belongs to whatever serves the client (the nginx container, and the
-  // deployment phase). `crossOriginResourcePolicy` is relaxed to `cross-origin`
-  // because the client is served from a different origin than the API.
+  // Behind the platform's HTTPS proxy (Render), the client address arrives in
+  // `X-Forwarded-For`. Trusting exactly one hop makes `req.ip` the real caller
+  // again, which is what the login rate limiter counts. More than one hop is
+  // not trusted, because anyone could then forge the header.
+  if (config.isProduction) {
+    app.set('trust proxy', 1);
+  }
+
+  // Sensible security headers. A Content-Security-Policy protects a *document*,
+  // so it is switched on exactly when this process serves one: in the
+  // same-origin production deployment. When the API answers JSON only (local
+  // development, and the Docker Compose stack where nginx serves the client)
+  // there is no document here to protect. `crossOriginResourcePolicy` stays
+  // `cross-origin` for that split setup.
   app.use(
     helmet({
-      contentSecurityPolicy: false,
+      contentSecurityPolicy: config.serveClient
+        ? {
+            useDefaults: false,
+            directives: {
+              defaultSrc: ["'self'"],
+              baseUri: ["'self'"],
+              objectSrc: ["'none'"],
+              frameAncestors: ["'none'"],
+              formAction: ["'self'"],
+              scriptSrc: ["'self'"],
+              // React writes layout through style attributes, and Vite inlines
+              // a small style block; neither is user content.
+              styleSrc: ["'self'", "'unsafe-inline'"],
+              imgSrc: ["'self'", 'data:'],
+              fontSrc: ["'self'", 'data:'],
+              // Same origin only — the client never calls a third-party API.
+              connectSrc: ["'self'"],
+            },
+          }
+        : false,
       crossOriginResourcePolicy: { policy: 'cross-origin' },
     }),
   );
@@ -84,6 +117,24 @@ export function createApp() {
   app.use('/api', activityRouter);
   app.use('/api', kanbanRouter);
   app.use('/api', dashboardRouter);
+
+  // An unknown /api address is answered here, before the client router exists.
+  // The API always speaks JSON: a caller expecting JSON must never be handed
+  // the single-page application's HTML document instead.
+  app.use('/api', notFound);
+
+  // Production only: the same origin also serves the built React client.
+  if (config.serveClient) {
+    const clientDistPath = resolveClientDistPath(config.clientDistPath);
+
+    if (hasClientBuild(clientDistPath)) {
+      app.use(createClientRouter(clientDistPath));
+    } else {
+      // The API is still perfectly usable — the Docker Compose server image, for
+      // example, contains no client at all — so this is a warning, not a crash.
+      console.warn(`No client build found at ${clientDistPath}; serving the API only.`);
+    }
+  }
 
   app.use(notFound);
   app.use(errorHandler);
