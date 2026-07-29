@@ -1006,3 +1006,99 @@ URL, and `migrate deploy` rejects it. It never appeared locally because the
 variable was always set there. Nothing in the type system, the test suite or the
 build output could have found that — only running the production image against a
 throwaway database did.
+
+---
+
+## Phase 10 — Project Mastery, Final QA and Interview Preparation
+
+**Phase:** 10 — Proje hâkimiyeti, son QA ve mülakat hazırlığı (2026-07-29)
+
+Bu faz ürün geliştirme fazı değildi. Tek satır uygulama kodu, şema, migration,
+Docker ya da CI dosyası değişmedi; yalnızca dokümantasyon yazıldı. Amaç üçtü:
+projeyi **dürüstçe doğrulamak**, öğrenilenleri **öğretilebilir hâle getirmek** ve
+bir staj mülakatında projeyi **savunabilir** duruma gelmek.
+
+**Öğrenilen kavramlar**
+
+- **Dokümantasyon da bayatlar.** `docs/PROJECT_STATE.md` "remote yok, hiçbir şey
+  dağıtılmadı" diyordu; oysa `git remote -v` bir origin gösteriyor, 11 commit
+  var, CI yeşil ve uygulama canlı. Devir dosyasının değeri güncel olmasına
+  bağlı; güncel olmayan bir devir dosyası yokluğundan daha zararlı, çünkü
+  okuyan ona güveniyor. Aynı çelişki README'de de vardı: bölüm hem canlı URL'yi
+  içeriyor hem "URL servis oluşunca eklenecek" diyordu.
+- **"Doğrulandı" bir tarih ve bir kanıt ister.** Bir kutuyu işaretlemek için
+  komutu **bu çalıştırmada** çalıştırmış olmak gerekiyor. `docs/FINAL_QA.md`
+  artık her satırda ya bir komut çıktısı, ya bir test dosyası, ya bir canlı HTTP
+  yanıtı taşıyor — ve taşımayan her satır `MANUAL PENDING`.
+- **Başarısızlığın sebebini doğru adlandırmak.** İlk `npm test` çalıştırmasında
+  10 sunucu test dosyası düştü. Refleks "testler bozuk" demek olurdu; gerçek
+  sebep yerel tek kullan-at veritabanı sunucusunun kapalı olmasıydı.
+  `npx prisma dev --name devflow` sonrası 218 sunucu testinin tamamı geçti. Kod
+  hatası ile ortam hatası ayrımını yapmamak, olmayan bir problemi kovalamaktır.
+- **Aracın kurulu olması çalıştığı anlamına gelmiyor.** `docker --version` 29.6.2
+  yazdırıyor ve `docker compose config` geçiyor — ama `docker build` düşüyor,
+  çünkü Docker Desktop motoru kapalı. `config` yalnızca YAML ayrıştırıyor. Bu
+  ayrım, "Docker doğrulandı" ifadesinin ne kadarını kapsadığını dürüstçe
+  söyleyebilmenin tek yolu.
+- **Küçük bir sözleşme ihlali de bir bulgudur.** Dokümantasyon "her hata makine
+  tarafından okunabilir bir `code` taşır" diyor, ama bilinmeyen adres 404'ü
+  yalnızca `message` döndürüyor (`server/src/middleware/notFound.ts`). Etkisi
+  düşük — hiçbir ekran bu koda dallanmıyor — ama sessizce düzeltmek yerine
+  **F-1** olarak kaydettim: QA ile kod değişikliğini aynı görevde karıştırmak,
+  neyin doğrulandığını belirsizleştirir.
+- **Öğretmek, bilmenin sınavıdır.** Her kavramı "basit anlatım / teknik
+  açıklama / gerçek dosya yolu / akış / sık yapılan hata / mülakat cevabı"
+  biçiminde yazmak, yalnızca çalıştığını bildiğim ama **neden** öyle olduğunu
+  anlatamadığım yerleri açığa çıkardı. Bir cümleyi yazamıyorsan o konuyu
+  öğrenmemişsindir.
+- **Yapay zekâ kullanımını çerçevelemek.** Doğru anlatım ne saklamak ne
+  abartmak: yapay zekâ uygulamayı ve incelemeyi hızlandırdı, kararları ben
+  verdim, davranışı test ettim ve ana kod yollarını anlatabiliyorum. "Her
+  satırını elle yazdım" iddiası ilk teknik soruda çöker.
+
+**Anlaşılan dosyalar**
+
+- `docs/FINAL_QA.md` — artık bir kontrol listesi değil, kanıt raporu:
+  otomatik komut sonuçları, canlı production kontrolleri, alan bazlı matris ve
+  yedi numaralandırılmış bulgu.
+- `docs/PROJECT_FILE_MAP.md` — deponun haritası; her önemli dosyanın
+  sorumluluğu, çağıranı, çağırdığı ve tek cümlelik mülakat açıklaması.
+- `docs/PROJECT_WALKTHROUGH.md` — 26 kavram bölümü ve 15 istek akışı vaka
+  çalışması.
+- `docs/INTERVIEW_GUIDE.md` — 17 bölümde 134 soru ve 46 pratik alıştırma.
+- `docs/DEBUGGING_PLAYBOOK.md` — 11 adımlı yöntem ve 24 senaryo.
+- `docs/MOCK_INTERVIEWS.md`, `docs/DEMO_SCRIPT.md`, `docs/STUDY_PLAN.md` —
+  prova, sunum ve iki haftalık çalışma programı.
+
+**Çözülen problemler**
+
+- Sunucu testleri "başarısız" görünüyordu — sebep test veritabanı sunucusunun
+  kapalı olması — ön koşul `FINAL_QA.md`, `PROJECT_STATE.md` ve
+  `DEBUGGING_PLAYBOOK.md` senaryo 12'de belgelendi.
+- Devir dosyası ve README gerçekle çelişiyordu — dört yanlış ifade düzeltildi.
+- Portföy eksikleri tahmin edilmek yerine ölçüldü: GitHub API'si deponun
+  açıklamasının ve homepage alanının **boş** olduğunu gösterdi; README'de ekran
+  görüntüleri hâlâ yer tutucu.
+
+**Mülakat açıklaması**
+
+Son fazda yeni özellik yazmadım; projeyi dürüstçe doğruladım ve
+anlatılabilir hâle getirdim. Bütün doğrulama komutlarını yeniden çalıştırdım —
+typecheck, 314 test, coverage, build, şema araçları, migration durumu ve
+`docker compose config` — ve canlı uygulamayı halka açık internet üzerinden
+kontrol ettim: sağlık ucu, SPA yenilemesi, bilinmeyen `/api` adresinin JSON 404
+dönmesi, oturumsuz isteğin 401 alması, yabancı origin'li mutasyonun 403
+alması ve güvenlik başlıkları. Çalıştıramadığım şeyleri "geçti" diye
+işaretlemedim: Docker motoru kapalı olduğu için imaj build'i ve Compose runtime
+`MANUAL PENDING` kaldı, Render loglarına erişimim olmadığı için onlar hakkında
+hiçbir iddiada bulunmadım. Bu sırada iki tür sorun buldum: dokümantasyonun
+gerçekle çeliştiği dört yer — devir dosyası hâlâ "dağıtılmadı" diyordu — ve
+küçük bir sözleşme ihlali: bilinmeyen adres 404'ü, dokümantasyonun vaat ettiği
+kararlı hata kodunu taşımıyor. İkincisini sessizce düzeltmek yerine şiddetiyle,
+kanıtıyla ve ilgili dosyasıyla birlikte QA raporuna yazdım, çünkü QA'yı ve kod
+değişikliğini aynı görevde karıştırmak neyin doğrulandığını belirsizleştirir.
+Son olarak, projeyi Türkçe bir öğrenme paketine dönüştürdüm: dosya haritası,
+baştan sona anlatım ve 15 istek akışı, 134 mülakat sorusu, 46 alıştırma, 24
+hata ayıklama senaryosu, on prova mülakatı, demo metni ve 14 günlük bir çalışma
+planı. Bunları yazmanın kendisi bir sınavdı: bir konuyu hem basit hem teknik
+olarak anlatamadığım her yer, o konuyu henüz öğrenmediğim yerdi.

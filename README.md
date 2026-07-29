@@ -16,10 +16,13 @@ GitHub Actions
 
 ## Live demo
 
-(https://devflow-902d.onrender.com) The repository is prepared for a one-service, same-origin
-deployment on Render (see [Production deployment](#production-deployment) and
-[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)). This section will carry the URL once
-the service exists.
+**https://devflow-902d.onrender.com**
+
+One Render Web Service and one Render PostgreSQL, same-origin (see
+[Production deployment](#production-deployment) and
+[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)). It runs on Render's free tier, so the
+service sleeps when idle and the first request after a pause is slow. There is
+no shared demo account — create one through `/register`.
 
 ## Screenshots
 
@@ -160,8 +163,8 @@ management screen, and the origin check is not a full CSRF-token flow.
 | `ActivityLog` | append-only record of meaningful changes |
 
 Enums (`WorkspaceRole`, `ProjectStatus`, `SprintStatus`, `IssueType`,
-`IssueStatus`, `Priority`) are real PostgreSQL enums. `(projectId, number)` is a
-composite unique index.
+`IssueStatus`, `IssuePriority`, `ActivityType`) are real PostgreSQL enums.
+`(projectId, number)` is a composite unique index.
 
 Schema: [server/prisma/schema.prisma](server/prisma/schema.prisma).
 
@@ -267,7 +270,7 @@ npm run test:server
 npm run test:coverage
 ```
 
-Around 300 tests. The client suite needs no database. The server suite runs
+314 tests (client 96, server 218). The client suite needs no database. The server suite runs
 against a **separate** database whose URL must contain `devflow_test` — the
 setup refuses anything else, so a mistyped URL cannot touch development data:
 
@@ -403,7 +406,7 @@ limiter.
 
 ## Project status
 
-**Phase 9B of 10 — deployment preparation complete, deployment pending.**
+**Phase 10 of 10 — deployed and live; final QA and learning package complete.**
 
 | Area | Status |
 |---|---|
@@ -411,9 +414,13 @@ limiter.
 | Security, Docker, CI (Phase 8) | Complete |
 | Visual system and browser QA (Phase 9A) | Complete |
 | Production configuration, image, blueprint, docs (Phase 9B) | Complete |
-| Pushed to GitHub | Pending |
-| Deployed to Render | Pending |
-| Live URL and screenshots | Pending |
+| Pushed to GitHub | Done — history not squashed, CI green |
+| Deployed to Render | Done — live and health-checked |
+| Live URL | Done |
+| Screenshots | Pending |
+
+Verification evidence, open findings and the remaining manual checks:
+[docs/FINAL_QA.md](docs/FINAL_QA.md).
 
 Current state at any time: [docs/PROJECT_STATE.md](docs/PROJECT_STATE.md).
 Full roadmap: [docs/ROADMAP.md](docs/ROADMAP.md).
@@ -428,6 +435,17 @@ Full roadmap: [docs/ROADMAP.md](docs/ROADMAP.md).
 | [docs/ROADMAP.md](docs/ROADMAP.md) | The ten phases and their acceptance criteria |
 | [docs/LEARNING_LOG.md](docs/LEARNING_LOG.md) | What each phase taught |
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Step-by-step GitHub and Render deployment |
-| [docs/INTERVIEW_GUIDE.md](docs/INTERVIEW_GUIDE.md) | Every topic explained simply, technically, and as a Q&A |
-| [docs/FINAL_QA.md](docs/FINAL_QA.md) | The manual pre-launch checklist |
-| [docs/PORTFOLIO_COPY.md](docs/PORTFOLIO_COPY.md) | Ready-to-use portfolio text, Turkish and English |
+| [docs/FINAL_QA.md](docs/FINAL_QA.md) | Verification evidence, QA matrix and open findings |
+| [docs/PORTFOLIO_COPY.md](docs/PORTFOLIO_COPY.md) | Ready-to-use portfolio text and a portfolio readiness review |
+
+Learning package (Turkish), written for internship interview preparation:
+
+| Document | Contents |
+|---|---|
+| [docs/PROJECT_FILE_MAP.md](docs/PROJECT_FILE_MAP.md) | What every important file does, and why |
+| [docs/PROJECT_WALKTHROUGH.md](docs/PROJECT_WALKTHROUGH.md) | The whole project explained, plus 15 request-flow case studies |
+| [docs/INTERVIEW_GUIDE.md](docs/INTERVIEW_GUIDE.md) | 134 interview questions with evidence, plus 46 practical exercises |
+| [docs/MOCK_INTERVIEWS.md](docs/MOCK_INTERVIEWS.md) | Ten mock interviews with scoring rubrics |
+| [docs/DEBUGGING_PLAYBOOK.md](docs/DEBUGGING_PLAYBOOK.md) | A repeatable debugging method and 24 real scenarios |
+| [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md) | 30-second, 2-minute, 5-minute and 10-minute demo scripts with a fallback plan |
+| [docs/STUDY_PLAN.md](docs/STUDY_PLAN.md) | A 14-day study plan and a self-assessment rubric |

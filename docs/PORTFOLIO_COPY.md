@@ -3,8 +3,13 @@
 Ready-to-paste text in Turkish and English. Written for a software **internship**
 application: honest about scope, specific about what was built and understood.
 
-Replace `<live-url>` and `<github-url>` before using anything. Do not claim a
-live demo until one exists.
+**Canlı demo:** https://devflow-902d.onrender.com
+**Depo:** https://github.com/emirseren100/DevFlow
+
+Her ikisi de doğrulandı (bkz. [FINAL_QA.md](FINAL_QA.md) §2). Ücretsiz Render
+katmanında servis boştayken uykuya geçiyor; ilk istek yavaş olabilir.
+
+Portföy hazırlık durumu bu dosyanın sonunda: [§11](#11-portföy-hazırlık-incelemesi).
 
 ---
 
@@ -38,7 +43,9 @@ behind role-based permissions.
 - Vitest, React Testing Library ve Supertest ile ~300 test yazdım; sunucu
   testleri gerçek bir PostgreSQL test veritabanına karşı çalışıyor.
 - Çok aşamalı Docker imajı, Docker Compose ve GitHub Actions CI kurdum;
-  production için tek origin üzerinden çalışan bir Render dağıtımı hazırladım.
+  uygulamayı tek origin üzerinden çalışan bir Render Web Service olarak
+  dağıttım — migration'lar konteyner başlarken uygulanıyor ve health check
+  geçmeden yeni sürüm trafiği devralmıyor.
 
 **EN**
 
@@ -54,7 +61,9 @@ behind role-based permissions.
 - Wrote ~300 tests with Vitest, React Testing Library and Supertest; the server
   suite runs against a real PostgreSQL test database.
 - Set up multi-stage Docker builds, Docker Compose and GitHub Actions CI, and
-  prepared a same-origin production deployment on Render.
+  deployed the app as a single same-origin Render Web Service, where migrations
+  run at container start and a failing health check keeps the previous version
+  serving.
 
 ---
 
@@ -86,7 +95,8 @@ Projeyi yapay zekâ desteğiyle geliştirdim; asıl hedefim mimarinin her karar�
 gerekçesiyle birlikte anlatabilir olmaktı — kararların tamamı reddedilen
 alternatifleriyle birlikte depoda yazılı.
 
-Kod: `<github-url>`
+Kod: https://github.com/emirseren100/DevFlow
+Canlı: https://devflow-902d.onrender.com
 
 **EN**
 
@@ -114,7 +124,8 @@ I built it with AI assistance, and the goal throughout was to be able to explain
 every architectural decision — each one is written down in the repository with
 the alternatives I rejected.
 
-Code: `<github-url>`
+Code: https://github.com/emirseren100/DevFlow
+Live: https://devflow-902d.onrender.com
 
 ---
 
@@ -367,3 +378,62 @@ never starts at all.
 I also know what is missing: no realtime updates, no email flows, an in-memory
 rate limiter, and deletions that cannot be undone. They are all written down as
 known limitations.
+
+---
+
+## 11. Portföy hazırlık incelemesi
+
+**İnceleme tarihi:** 2026-07-29. Kanıtlar: [FINAL_QA.md](FINAL_QA.md).
+
+Sınıflandırma: **READY** · **NEEDS IMPROVEMENT** · **MISSING**
+
+| # | Öğe | Durum | Kanıt / yapılacak |
+|---|---|---|---|
+| 1 | Depo adı (`DevFlow`) | **READY** | Kısa, akılda kalıcı, ürün adıyla aynı |
+| 2 | Depo açıklaması | **MISSING** | GitHub API `"description": null`. §4'teki metni depo ayarlarına yapıştır. Bulgu **F-5** |
+| 3 | Depo topics | **MISSING** | §4'teki topic listesini ekle |
+| 4 | Homepage alanı (canlı demo) | **MISSING** | GitHub API `"homepage": null`. Canlı URL'yi yaz |
+| 5 | README açılışı | **READY** | İlk paragraf ne olduğunu ve kimin için olduğunu söylüyor |
+| 6 | Canlı demo bağlantısı | **READY** | https://devflow-902d.onrender.com — çalışıyor, `/api/health` 200 |
+| 7 | Ekran görüntüleri | **MISSING** | README'de hâlâ "_Placeholder._". Beş görüntü gerekli: dashboard, filtreli issue listesi, issue detayı + yorumlar, Kanban, mobil. Bulgu **F-4** |
+| 8 | Özellik listesi | **READY** | README'de gerçek özellikler; "yapılmadı" satırı da var |
+| 9 | Mimari açıklaması | **READY** | README özet + `docs/ARCHITECTURE.md` + `docs/PROJECT_WALKTHROUGH.md` |
+| 10 | Kurulum yönergeleri | **READY** | README "Local development"; komutlar `package.json` ile eşleşiyor |
+| 11 | CI görünürlüğü | **NEEDS IMPROVEMENT** | Workflow çalışıyor ve yeşil, ama README'de bir **CI rozeti** yok. Tek satırlık ekleme |
+| 12 | Commit geçmişi | **READY** | 11 commit, faz faz, squash edilmemiş, İngilizce ve açıklayıcı |
+| 13 | Bilinen sınırlar | **READY** | README "Known limitations" + `FINAL_QA.md` bulgular bölümü |
+| 14 | Proje durumu | **READY** | README bu fazda gerçek duruma güncellendi (dağıtıldı, canlı) |
+| 15 | CV maddeleri | **READY** | §2 — sayılar doğrulandı (314 test, roller, transaction'lar, dağıtım) |
+| 16 | LinkedIn açıklaması | **READY** | §3 — canlı ve depo bağlantıları dolduruldu |
+| 17 | Teknik öne çıkanlar | **READY** | §6 — üçü de kaynak koddan doğrulandı |
+| 18 | Yapay zekâ kullanımının anlatımı | **READY** | §3 ve §9'da dürüst ve profesyonel çerçevede |
+| 19 | Kullanıcının kendi anlatım hazırlığı | **NEEDS IMPROVEMENT** | Belge hazır ama **prova edilmedi**. [STUDY_PLAN.md](STUDY_PLAN.md) ve [MOCK_INTERVIEWS.md](MOCK_INTERVIEWS.md) bunun içindir |
+| 20 | Demo yedek planı | **READY** | [DEMO_SCRIPT.md](DEMO_SCRIPT.md) §5 |
+
+### Öncelik sırasıyla yapılacaklar
+
+1. **Ekran görüntüleri** (F-4) — portföyde en görünür eksik. Canlı uygulamada
+   demo verisi oluştur, beş görüntü al, README'ye ekle.
+2. **Depo açıklaması + homepage + topics** (F-5) — üç dakikalık iş, arama ve ilk
+   izlenim üzerinde büyük etkisi var.
+3. **README'ye CI rozeti** — yeşil bir rozet, testlerin gerçekten çalıştığını
+   tıklamadan gösteriyor.
+4. **Anlatım provası** — 14 günlük plan; belge okumak anlatabilmek değildir.
+
+### Yapay zekâ kullanımı nasıl anlatılmalı
+
+Bu proje yapay zekâ desteğiyle geliştirildi ve bunu saklamak yanlış olur —
+ilk teknik soruda zaten anlaşılır. Dürüst ve profesyonel çerçeve şu:
+
+- Yapay zekâ **uygulamayı ve incelemeyi hızlandırdı** (iskele, tekrar eden kod,
+  daha önce yapılmamış kısımlar, gözden geçirme).
+- **Kararları kullanıcı verdi** — 91 teknik karar, reddedilen alternatifleriyle
+  birlikte `docs/DECISIONS.md` içinde yazılı.
+- **Davranış test edildi** — 314 otomatik test, gerçek bir PostgreSQL test
+  veritabanı ve manuel QA matrisi; neyin doğrulandığı ve neyin manuel beklediği
+  `docs/FINAL_QA.md` içinde dürüstçe ayrılmış.
+- **Mimari anlaşılıyor** ve **ana kod yolları anlatılabiliyor** — dosya haritası,
+  akış anlatımı ve mülakat rehberi bunun için var.
+
+Söylenmemesi gerekenler: "her satırını elle yazdım", "yapay zekâ kullanmadım",
+"tamamen production'a hazır". Üçü de kontrol edilebilir ve üçü de yanlış.

@@ -3,31 +3,111 @@
 > Handover file. Read this first in a new conversation.
 > Keep it short and current. Updated at the end of every phase.
 
-**Last updated:** 2026-07-27
+**Last updated:** 2026-07-29
 
 ## Current Phase
 
-**Phase 9B — Production Deployment Preparation — CODE PREPARATION COMPLETED.**
-The repository is ready to deploy as **one same-origin Render Web Service** with
-**one Render PostgreSQL**: the production client uses `/api`, Express serves the
-built React client for non-API routes, the server respects the platform `PORT`
-and resolves its trusted origin safely, `Dockerfile.production` and `render.yaml`
-exist, and migrations run before the server starts. Typecheck, 314 tests,
-coverage, the build and `docker compose config` all pass, and the production
-image was **built and run locally** against a throwaway database.
+**Phase 10 — Project Mastery, Final QA and Interview Preparation — COMPLETED.**
+This was a **non-feature** phase: no product code, schema, migration, Docker or
+CI file was touched. Only documentation was written.
+
+**The deployment is done.** Superseding the previous state of this file: the
+history is on GitHub (`origin https://github.com/emirseren100/DevFlow`, `main`,
+11 commits, not squashed), CI is green, and the application is live at
+**https://devflow-902d.onrender.com** as one same-origin Render Web Service with
+one Render PostgreSQL.
+
+**What this phase produced:**
+
+| Output | Status |
+|---|---|
+| Re-ran the full automated verification | Done — see the table below |
+| Production sanity check over the public internet | Done — health, SPA fallback, API 404, 401, 403 `INVALID_ORIGIN`, security headers |
+| `docs/FINAL_QA.md` rewritten as an evidence-backed QA matrix | Done |
+| Turkish learning package (7 new/expanded documents) | Done |
+| Documentation corrections (4 false statements fixed) | Done |
 
 **Still pending, and all manual:**
 
 | Step | Status |
 |---|---|
-| Push to GitHub | **Pending** — the local history has 5 commits, no remote |
-| Render Blueprint and deployment | **Pending** — no Render resource exists |
-| Live URL | **Pending** — nothing is deployed |
-| README screenshots and demo link | **Pending** — placeholders |
-| Post-deployment checks in `docs/FINAL_QA.md` | **Pending** |
+| README screenshots | **Pending** — placeholders (finding **F-4**) |
+| GitHub repository description, homepage and topics | **Pending** — all empty (finding **F-5**) |
+| Live browser check of the auth flow (cookie flags, empty storage) | **Pending** |
+| Docker image build and Compose runtime | **Pending** — the Docker daemon is not running on this machine |
+| Fix for the missing `code` field on the unknown-route 404 | **Pending** — a separate, small code task (finding **F-1**) |
 
-Nothing has been pushed or deployed, and no GitHub or Render resource was
-created by this phase.
+Nothing was committed, pushed or deployed by this phase, and no production data
+was touched.
+
+## Learning Package (Phase 10)
+
+Written in Turkish, for internship interview preparation. Recommended reading
+order:
+
+1. `docs/PROJECT_FILE_MAP.md` — what every important file does, who calls it,
+   and one interview sentence per file
+2. `docs/PROJECT_WALKTHROUGH.md` — every concept in six beats (simple,
+   technical, files, flow, common mistake, interview answer) plus **15
+   request-flow case studies**
+3. `docs/INTERVIEW_GUIDE.md` — **134 questions** across 17 sections, each with
+   what is being tested, a simple answer, a strong answer, DevFlow evidence, a
+   follow-up and a mistake to avoid; plus **46 practical exercises** (12 JS/TS,
+   10 SQL, 8 REST design, 8 React, 8 debugging)
+4. `docs/DEBUGGING_PLAYBOOK.md` — an 11-step method and **24 scenarios**
+5. `docs/MOCK_INTERVIEWS.md` — **10 mock interviews** with beginner/strong/poor
+   answers and 1–5 rubrics
+6. `docs/DEMO_SCRIPT.md` — 30-second, 2-minute, 5-minute and 10-minute scripts
+   plus a fallback plan
+7. `docs/STUDY_PLAN.md` — a 14-day plan and a self-assessment rubric (scores
+   left empty on purpose)
+8. `docs/FINAL_QA.md` — what is actually verified, and what is not
+
+`docs/PORTFOLIO_COPY.md` gained a **portfolio readiness review** (20 items
+classified READY / NEEDS IMPROVEMENT / MISSING).
+
+## Verification Status (Phase 10, 2026-07-29)
+
+| Check | Result |
+|---|---|
+| `npm run typecheck` | Passed |
+| `npm test` | Passed — client **96**, server **218** (**314 total**) |
+| `npm run test:coverage` | Passed — client 92.91% lines, server 94.88% lines |
+| `npm run build` | Passed — CSS 18.97 kB (3.95 kB gzip), JS 386.82 kB (117.26 kB gzip) |
+| `npm run db:validate` / `db:generate` | Passed (Prisma Client 7.9.0) |
+| `npm run db:status` | Passed — 3 migrations, schema up to date |
+| `npm run db:check` | Passed — 4 users, 1 workspace, 2 projects, 10 issues |
+| `docker compose config` | Passed |
+| `docker build -f Dockerfile.production` | **Not run** — Docker daemon unavailable |
+| Docker Compose runtime | **Still never started on this machine** |
+| Production `GET /api/health` | `200 {"success":true,"data":{"status":"ok"}}` |
+| Production `/`, `/login`, `/register` | `200 text/html` |
+| Production `GET /api/does-not-exist` | `404` JSON (but no `code` field — **F-1**) |
+| Production nested SPA route refresh | `200 text/html` |
+| Production protected route without a session | `401 UNAUTHENTICATED` |
+| Production mutation with a foreign `Origin` | `403 INVALID_ORIGIN` |
+| Production security headers | CSP, HSTS, `nosniff` present; `X-Powered-By` absent |
+| GitHub Actions | Last two `CI` runs green |
+| Tracked-file secret scan | Clean |
+| Built client bundle secret scan | Clean — only `/api` and `localhost:4000` |
+| Render logs | **No access** — nothing claimed about them |
+
+**Prerequisite discovered.** The server test suite fails with Prisma connection
+errors unless the local disposable database server is running. Start it first:
+
+```bash
+npx prisma dev --name devflow
+```
+
+## Documentation Corrections Made in Phase 10
+
+| Was | Now |
+|---|---|
+| This file said "no remote", "5 commits", "nothing is deployed" | Corrected — deployed and live |
+| `README.md` carried the live URL *and* said the URL would come later | Corrected |
+| `README.md` project status said GitHub/Render "Pending" | Corrected |
+| `README.md` and the old `docs/INTERVIEW_GUIDE.md` called the priority enum `Priority` | Corrected to `IssuePriority` |
+| The test-database prerequisite (`npx prisma dev --name devflow`) was undocumented | Documented here and in `docs/DEBUGGING_PLAYBOOK.md` scenario 12 |
 
 ## Completed Work
 
@@ -601,19 +681,27 @@ step uses `continue-on-error`. The workflow does not deploy.
 
 ## Next Task
 
-**Phase 9B — the manual half.** Everything left needs the user's own accounts,
-so none of it was done automatically:
+**Phase 10 is complete. What remains is manual, and it is the user's own work.**
 
-1. Commit the Phase 9B changes.
-2. Create the GitHub repository and push `main` without squashing the history;
-   wait for the CI run to go green.
-3. Create the Render Blueprint from `render.yaml` — **review both `plan:` lines
-   and both `region:` lines first**.
-4. Watch the first deployment: the migration log, then `/api/health`.
-5. Register the first account through `/register` and build demonstration data
-   through the UI. Never seed production.
-6. Take the screenshots, put the live URL in the README, and work through
-   `docs/FINAL_QA.md`.
+1. **Study.** Start with `docs/STUDY_PLAN.md` Day 1 (architecture and file map),
+   after reading `docs/PROJECT_FILE_MAP.md`. The plan is 14 days at 60–90
+   minutes.
+2. **Screenshots** (finding **F-4**). Build demonstration data through the live
+   UI — never seed production — and take five screenshots: dashboard, filtered
+   issue list, issue detail with comments, Kanban board, mobile layout. Add them
+   to `README.md`.
+3. **GitHub repository metadata** (finding **F-5**). Description, homepage and
+   topics from `docs/PORTFOLIO_COPY.md` §4.
+4. **Live browser QA.** Sign in on the real HTTPS origin and confirm the cookie
+   is `HttpOnly; Secure; SameSite=Lax`, that `document.cookie` cannot read it,
+   and that `localStorage` and `sessionStorage` stay empty.
+5. **Docker.** Start Docker Desktop, then `docker build -f
+   Dockerfile.production` and `docker compose up` — both are still unverified on
+   this machine.
+6. **A separate small code task** for finding **F-1**: add
+   `code: 'NOT_FOUND'` to `server/src/middleware/notFound.ts` and assert it in
+   `server/src/test/deployment.test.ts`.
 
-Step-by-step instructions, including failure handling and rollback:
-`docs/DEPLOYMENT.md`.
+Deployment reference, including failure handling and rollback:
+`docs/DEPLOYMENT.md`. Everything that is and is not verified:
+`docs/FINAL_QA.md`.
